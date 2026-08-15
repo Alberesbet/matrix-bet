@@ -119,9 +119,42 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   .leagues button,.markets button{font-size:11px!important;padding:8px 10px!important}
 }
 
+
+.pwaChoice{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at 50% 12%,#164c3b 0,transparent 35%),linear-gradient(180deg,#061c17,#060b0d 70%)}
+.pwaChoice.hidden{display:none!important}
+.pwaChoiceCard{width:min(430px,100%);text-align:center;border:1px solid #315246;border-radius:20px;background:#0d1518;padding:28px 20px;box-shadow:0 25px 70px #000a}
+.pwaChoiceLogo{font-size:26px;font-weight:1000;letter-spacing:-1.2px}.pwaChoiceLogo b{color:#f1e43f}
+.pwaMark{width:92px;height:92px;margin:25px auto 20px;border:2px solid #43e0b0;border-radius:24px;display:grid;place-items:center;font-size:54px;font-weight:1000;color:#43e0b0;background:#102f27}
+.pwaChoice h1{margin:8px 0;font-size:27px}.pwaChoice p{color:#a8b3b6;line-height:1.5;margin:8px auto 22px;max-width:350px}
+.pwaChoice button{width:100%;min-height:52px;border-radius:10px;font-weight:1000;margin:6px 0}
+.pwaWebBtn{border:1px solid #415056;background:#172126;color:#fff}
+.pwaInstallBtn{border:0;background:#f1e43f;color:#111}
+.pwaChoice small{display:block;color:#77868b;margin-top:12px;line-height:1.4}
+
 </style>
+
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#08271F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+
 </head>
 <body>
+
+<section id="pwaChoice" class="pwaChoice hidden">
+  <div class="pwaChoiceCard">
+    <div class="pwaChoiceLogo">MATRIX <b>BET</b></div>
+    <div class="pwaMark">M</div>
+    <h1>Como você quer acessar?</h1>
+    <p>Use agora pelo navegador ou instale o MATRIX BET na tela inicial do celular.</p>
+    <button id="continueWeb" class="pwaWebBtn">CONTINUAR PELA WEB</button>
+    <button id="installPwa" class="pwaInstallBtn">⬇ INSTALAR APP</button>
+    <small id="installHelp">Instalação rápida pelo navegador. Não precisa baixar APK.</small>
+  </div>
+</section>
+
 <section id="authScreen" class="auth">
   <div class="authCard">
     <div class="logo">MATRIX <b>BET</b></div>
@@ -271,6 +304,59 @@ $('#closeMobileCoupon').onclick=()=>$('#mobileCouponDrawer').classList.add('hidd
 $('#mobileCouponDrawer').onclick=e=>{if(e.target===$('#mobileCouponDrawer'))$('#mobileCouponDrawer').classList.add('hidden')};
 
 setMode('register');boot();
+
+let deferredPwaPrompt = null;
+
+function isStandalonePwa(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function showPwaChoice(){
+  const choice=document.getElementById('pwaChoice');
+  if(choice && !isStandalonePwa() && sessionStorage.getItem('mx_web_choice')!=='1'){
+    choice.classList.remove('hidden');
+  }
+}
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredPwaPrompt=e;
+  const b=document.getElementById('installPwa');
+  if(b){ b.disabled=false; b.textContent='⬇ INSTALAR APP'; }
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredPwaPrompt=null;
+  const choice=document.getElementById('pwaChoice');
+  if(choice)choice.classList.add('hidden');
+});
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const web=document.getElementById('continueWeb');
+  const install=document.getElementById('installPwa');
+  const help=document.getElementById('installHelp');
+
+  if(web) web.onclick=()=>{
+    sessionStorage.setItem('mx_web_choice','1');
+    document.getElementById('pwaChoice').classList.add('hidden');
+  };
+
+  if(install) install.onclick=async()=>{
+    if(deferredPwaPrompt){
+      deferredPwaPrompt.prompt();
+      const result=await deferredPwaPrompt.userChoice;
+      if(result.outcome==='accepted'){
+        document.getElementById('pwaChoice').classList.add('hidden');
+      }
+      deferredPwaPrompt=null;
+    }else{
+      if(help) help.textContent='No Chrome/Android, abra o menu ⋮ e toque em “Instalar app” ou “Adicionar à tela inicial”.';
+    }
+  };
+  setTimeout(showPwaChoice, 150);
+});
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{}));
+}
+
 </script>
 </body>
 </html>
