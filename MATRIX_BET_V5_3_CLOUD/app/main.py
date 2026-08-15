@@ -133,7 +133,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.6 ADMIN API", version="5.6.0")
+app = FastAPI(title="MATRIX BET V5.6 ADMIN API", version="5.6.1")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -395,7 +395,7 @@ LIVE_LOOKUP = {e["id"]: e for e in LIVE}
 def health():
     return {
         "ok": True,
-        "version": "5.6.0",
+        "version": "5.6.1",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite"
     }
 
