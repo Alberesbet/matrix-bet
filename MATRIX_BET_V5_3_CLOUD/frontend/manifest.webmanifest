@@ -1,7 +1,7 @@
 {
   "name": "MATRIX BET",
   "short_name": "MATRIX BET",
-  "description": "MATRIX BET - plataforma web instalável",
+  "description": "MATRIX BET V5.5 - plataforma web instalável",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
