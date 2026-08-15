@@ -14,7 +14,7 @@
 }
 
 </style></head><body>
-<header class=top><div class=logo>MATRIX <b>BET ADMIN</b> <span style="font-size:11px;color:#91a19a">V5.9.5</span></div><span id=dbpill class=dbpill>Banco: verificando...</span><div class=spacer></div>
+<header class=top><div class=logo>MATRIX <b>BET ADMIN</b> <span style="font-size:10px;color:#54d9b0">APP ADM SEPARADO</span> <span style="font-size:11px;color:#91a19a">V5.9.6</span></div><span id=dbpill class=dbpill>Banco: verificando...</span><div class=spacer></div>
 <button class="btn primary" id="installAdminApp">⬇ INSTALAR APP ADM</button>
 <button class="btn danger hidden" id=logout>Sair</button></header>
 <section id=login class=login>
@@ -147,7 +147,7 @@ if($('#installAdminApp')) $('#installAdminApp').onclick=installAdminPwa;
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('/static/admin-service-worker.js', {scope:'/static/'})
+    navigator.serviceWorker.register('/admin-service-worker.js', {scope:'/'})
       .catch(()=>{});
   });
 }

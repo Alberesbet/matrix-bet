@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.9.5 ADMIN FIXED LINK API", version="5.9.5")
+app = FastAPI(title="MATRIX BET V5.9.6 DUAL APP API", version="5.9.6")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -420,7 +420,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.9.5",
+        "version": "5.9.6",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -991,6 +991,24 @@ def admin_reply_ticket(
 
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
+@app.get("/admin-service-worker.js")
+def admin_service_worker():
+    response = FileResponse(
+        FRONTEND / "admin-service-worker.js",
+        media_type="application/javascript"
+    )
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+@app.get("/api/app-mode")
+def app_mode():
+    return {
+        "mode": os.getenv("APP_MODE", "user").strip().lower(),
+        "version": "5.9.6",
+        "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
+    }
+
 @app.get("/admin")
 @app.get("/admin/")
 @app.get("/painel-adm")
@@ -1005,10 +1023,13 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "5.9.5",
+        "version": "5.9.6",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 
 @app.get("/")
-def index():
+def home():
+    mode = os.getenv("APP_MODE", "user").strip().lower()
+    if mode == "admin":
+        return RedirectResponse(url="/static/admin.html", status_code=307)
     return FileResponse(FRONTEND / "index.html")

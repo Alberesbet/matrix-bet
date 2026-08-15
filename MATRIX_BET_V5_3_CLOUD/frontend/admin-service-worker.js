@@ -1,5 +1,6 @@
-const ADMIN_CACHE='matrix-bet-admin-v595-shell';
+const ADMIN_CACHE='matrix-bet-admin-v596-shell';
 const ADMIN_SHELL=[
+  '/',
   '/static/admin.html',
   '/static/admin-manifest.webmanifest',
   '/static/icon-192.png',

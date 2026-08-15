@@ -3,7 +3,7 @@
   "name": "MATRIX BET ADMIN",
   "short_name": "MATRIX ADMIN",
   "description": "Painel administrativo MATRIX BET",
-  "start_url": "/admin",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#07100d",
