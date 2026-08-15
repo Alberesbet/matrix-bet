@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.8 PERFIL USUARIO API", version="5.8.0")
+app = FastAPI(title="MATRIX BET V5.8 PERFIL USUARIO API", version="5.8.1")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -415,7 +415,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.8.0",
+        "version": "5.8.1",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,

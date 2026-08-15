@@ -138,6 +138,12 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
 
 .profileTop{display:flex;align-items:center;gap:12px;margin-bottom:12px}.profileTop small{display:block;color:#91a19a;margin-top:3px}.profileAvatar{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;background:#173126;border:2px solid #43e0b0;font-size:34px;overflow:hidden}.profileAvatar img{width:100%;height:100%;object-fit:cover}.profileInfo{display:grid;gap:6px;margin-top:12px}.profileInfo label{font-size:11px;color:#8d9ba0}.profileInfo input:disabled{opacity:1;background:#10181a;color:#d9e0e2}
 
+
+#profileBtn{display:inline-flex;align-items:center;justify-content:center}
+@media(max-width:760px){
+  #profileBtn{display:inline-flex;padding:8px 10px;font-size:12px}
+}
+
 </style>
 
 <link rel="manifest" href="/static/manifest.webmanifest">
@@ -191,6 +197,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   <div class="spacer"></div>
   <div class="userBox">
     <div class="userCard"><div><small>USUÁRIO</small><b id="userName">—</b></div><div><small>SALDO DEMO</small><b class="bal" id="balanceTop" title="Conta e Segurança">—</b></div></div>
+    <button class="btn ghost" id="profileBtn">PERFIL</button>
     <button class="btn danger" id="logout">SAIR</button>
   </div>
 </header>
@@ -201,6 +208,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
     <button data-page="live">◉ <span>Ao Vivo</span><em>136</em></button>
     <button data-page="bets">▤ <span>Minhas Apostas</span></button>
     <button data-page="wallet">R$ <span>Carteira</span></button>
+      <button id="sideProfile">👤 <span>Perfil</span></button>
     <div class="sideTitle">COMPETIÇÕES</div>
     <button data-league="Brasileirão Série A">🇧🇷 <span>Brasileirão Série A</span></button>
     <button data-league="Brasileirão Série B">🇧🇷 <span>Brasileirão Série B</span></button>
@@ -426,8 +434,8 @@ async function openProfile(){
     $('#profileModal').classList.remove('hidden');
   }catch(e){alert(e.message)}
 }
-$('#profileBtn').onclick=openProfile;
-if($('#sideProfile'))$('#sideProfile').onclick=openProfile;
+if($('#profileBtn')) $('#profileBtn').onclick=openProfile;
+if($('#sideProfile')) $('#sideProfile').onclick=openProfile;
 $('[data-close-profile]').onclick=()=>$('#profileModal').classList.add('hidden');
 
 $('#avatarInput').onchange=()=>{
