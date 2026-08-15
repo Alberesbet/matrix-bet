@@ -174,7 +174,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.3 PAINEL COMPLETO API", version="6.3.0")
+app = FastAPI(title="MATRIX BET V6.4 MERCADOS COMPLETOS API", version="6.4.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -421,6 +421,74 @@ PREGAME = [
     {"id":"arg-1","sport":"Futebol","league":"Liga Argentina","time":"22:00","home":"Racing","away":"Independiente","odds":{"1":2.30,"X":3.00,"2":3.30}},
     {"id":"mls-1","sport":"Futebol","league":"MLS","time":"23:30","home":"Inter Miami","away":"LA Galaxy","odds":{"1":1.88,"X":3.80,"2":3.70}},
 ]
+
+def build_demo_markets(event):
+    eid = str(event.get("id",""))
+    seed = sum(ord(c) for c in eid)
+    def odd(base, mod=7, step=0.11):
+        return round(base + (seed % mod) * step, 2)
+    markets = [
+        {"group":"Resultado","items":[
+            {"market":"Resultado Final","pick":"1","label":"Casa","odd":float(event["odds"]["1"])},
+            {"market":"Resultado Final","pick":"X","label":"Empate","odd":float(event["odds"]["X"])},
+            {"market":"Resultado Final","pick":"2","label":"Fora","odd":float(event["odds"]["2"])},
+            {"market":"Dupla Chance","pick":"1X","label":"Casa ou Empate","odd":odd(1.20,5,0.08)},
+            {"market":"Dupla Chance","pick":"12","label":"Casa ou Fora","odd":odd(1.28,5,0.07)},
+            {"market":"Dupla Chance","pick":"X2","label":"Empate ou Fora","odd":odd(1.25,5,0.08)},
+        ]},
+        {"group":"Gols","items":[
+            {"market":"Total de Gols","pick":"over_1_5","label":"Mais de 1.5","odd":odd(1.35,6,0.07)},
+            {"market":"Total de Gols","pick":"under_1_5","label":"Menos de 1.5","odd":odd(2.30,6,0.12)},
+            {"market":"Total de Gols","pick":"over_2_5","label":"Mais de 2.5","odd":odd(1.75,6,0.10)},
+            {"market":"Total de Gols","pick":"under_2_5","label":"Menos de 2.5","odd":odd(1.85,6,0.09)},
+            {"market":"Ambas Marcam","pick":"btts_yes","label":"Sim","odd":odd(1.65,5,0.10)},
+            {"market":"Ambas Marcam","pick":"btts_no","label":"Não","odd":odd(1.80,5,0.11)},
+            {"market":"Primeiro Gol","pick":"first_goal_home","label":"Casa","odd":odd(1.85,6,0.13)},
+            {"market":"Primeiro Gol","pick":"first_goal_away","label":"Fora","odd":odd(2.10,6,0.14)},
+            {"market":"Primeiro Gol","pick":"first_goal_none","label":"Sem gol","odd":odd(7.50,5,0.45)},
+        ]},
+        {"group":"Escanteios","items":[
+            {"market":"Total de Escanteios","pick":"corners_over_7_5","label":"Mais de 7.5","odd":odd(1.55,6,0.08)},
+            {"market":"Total de Escanteios","pick":"corners_over_9_5","label":"Mais de 9.5","odd":odd(1.95,6,0.11)},
+            {"market":"Total de Escanteios","pick":"corners_under_9_5","label":"Menos de 9.5","odd":odd(1.70,6,0.09)},
+            {"market":"Mais Escanteios","pick":"corners_home","label":"Casa","odd":odd(1.75,5,0.12)},
+            {"market":"Mais Escanteios","pick":"corners_away","label":"Fora","odd":odd(1.95,5,0.13)},
+        ]},
+        {"group":"Cartões","items":[
+            {"market":"Total de Cartões","pick":"cards_over_3_5","label":"Mais de 3.5","odd":odd(1.55,6,0.08)},
+            {"market":"Total de Cartões","pick":"cards_over_5_5","label":"Mais de 5.5","odd":odd(2.05,6,0.12)},
+            {"market":"Mais Cartões","pick":"cards_home","label":"Casa","odd":odd(1.90,5,0.11)},
+            {"market":"Mais Cartões","pick":"cards_away","label":"Fora","odd":odd(1.90,5,0.11)},
+        ]},
+        {"group":"Faltas","items":[
+            {"market":"Total de Faltas","pick":"fouls_over_21_5","label":"Mais de 21.5","odd":odd(1.65,6,0.08)},
+            {"market":"Total de Faltas","pick":"fouls_under_21_5","label":"Menos de 21.5","odd":odd(1.95,6,0.08)},
+            {"market":"Mais Faltas","pick":"fouls_home","label":"Casa","odd":odd(1.88,5,0.10)},
+            {"market":"Mais Faltas","pick":"fouls_away","label":"Fora","odd":odd(1.88,5,0.10)},
+        ]},
+        {"group":"Pênalti","items":[
+            {"market":"Pênalti na Partida","pick":"penalty_yes","label":"Sim","odd":odd(2.55,6,0.25)},
+            {"market":"Pênalti na Partida","pick":"penalty_no","label":"Não","odd":odd(1.28,5,0.06)},
+            {"market":"Gol de Pênalti","pick":"penalty_goal_yes","label":"Sim","odd":odd(3.10,6,0.28)},
+            {"market":"Gol de Pênalti","pick":"penalty_goal_no","label":"Não","odd":odd(1.20,5,0.05)},
+        ]},
+        {"group":"1º Tempo","items":[
+            {"market":"Resultado 1º Tempo","pick":"ht_1","label":"Casa","odd":odd(2.15,6,0.14)},
+            {"market":"Resultado 1º Tempo","pick":"ht_X","label":"Empate","odd":odd(1.95,6,0.11)},
+            {"market":"Resultado 1º Tempo","pick":"ht_2","label":"Fora","odd":odd(2.45,6,0.15)},
+            {"market":"Gol 1º Tempo","pick":"ht_goal_yes","label":"Sim","odd":odd(1.45,6,0.08)},
+            {"market":"Gol 1º Tempo","pick":"ht_goal_no","label":"Não","odd":odd(2.40,6,0.13)},
+        ]},
+    ]
+    return markets
+
+def demo_market_lookup(event):
+    lookup={}
+    for grp in build_demo_markets(event):
+        for item in grp["items"]:
+            lookup[(item["market"],item["pick"])] = float(item["odd"])
+    return lookup
+
 EVENT_LOOKUP = {e["id"]: e for e in PREGAME}
 
 def make_live():
@@ -464,7 +532,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.3.0",
+        "version": "6.4.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -583,6 +651,14 @@ def events(user: User = Depends(get_current_user)):
 def get_live(user: User = Depends(get_current_user)):
     return {"count": len(LIVE), "events": LIVE}
 
+
+@app.get("/api/events/{event_id}/markets")
+def event_markets(event_id: str, user: User = Depends(get_current_user)):
+    event = EVENT_LOOKUP.get(event_id) or LIVE_LOOKUP.get(event_id)
+    if not event:
+        raise HTTPException(404, "Evento não encontrado")
+    return {"event":event,"groups":build_demo_markets(event)}
+
 @app.get("/api/bets")
 def get_bets(
     user: User = Depends(get_current_user),
@@ -612,9 +688,10 @@ def place_bet(
         event = EVENT_LOOKUP.get(s.event_id) or LIVE_LOOKUP.get(s.event_id)
         if not event:
             raise HTTPException(400, f"Evento inválido: {s.event_id}")
-        server_odd = event["odds"].get(s.pick)
+        market_lookup = demo_market_lookup(event)
+        server_odd = market_lookup.get((s.market, s.pick))
         if server_odd is None:
-            raise HTTPException(400, f"Seleção inválida: {s.pick}")
+            raise HTTPException(400, f"Seleção inválida: {s.market} / {s.pick}")
         total_odd *= float(server_odd)
         clean.append({
             "event_id":s.event_id,
@@ -1273,7 +1350,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.3.0",
+        "version": "6.4.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1291,7 +1368,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.3.0",
+        "version": "6.4.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

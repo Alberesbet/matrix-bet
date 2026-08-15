@@ -166,6 +166,20 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
 @media(max-width:900px){.v63stats{grid-template-columns:repeat(2,1fr)}.v63live{grid-template-columns:1fr 1fr}.v63features{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.v63live{grid-template-columns:1fr}.v63features{grid-template-columns:1fr 1fr}.v63recent{font-size:11px}}
 </style>
+
+<style id="v64-market-css">
+.teamline{display:flex;align-items:center;gap:7px}.crest{width:24px;height:28px;display:inline-grid;place-items:center;border-radius:7px 7px 10px 10px;background:linear-gradient(160deg,#2f7355,#17251f);border:1px solid #65d6a4;color:white;font-size:9px;font-weight:950;letter-spacing:-.3px}
+.moreBtn{border:1px solid #345048;background:#12201b;color:#58dfa9;border-radius:7px;padding:8px 9px;font-weight:850;cursor:pointer}
+.v63match{cursor:pointer}.v63feature{cursor:pointer}.v63odds span{cursor:pointer}
+.marketModal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:120;display:flex;align-items:center;justify-content:center;padding:15px}
+.marketModal.hidden{display:none}.marketCard{width:min(920px,96vw);max-height:90vh;overflow:auto;background:#07110e;border:1px solid #315047;border-radius:14px;padding:16px}
+.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:center;position:sticky;top:-16px;background:#07110e;padding:8px 0 12px;z-index:2}
+.marketClose{background:#3a1717;color:#ffb1b1;border:1px solid #703333;border-radius:8px;padding:8px 12px;font-weight:900;cursor:pointer}
+.marketGroup{margin:12px 0;border:1px solid #253a33;border-radius:10px;overflow:hidden}.marketGroup h4{margin:0;padding:10px 12px;background:#102019;color:#e6eee9}
+.marketGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px}.marketOdd{background:#1a2529;border:1px solid #35464d;color:#fff;border-radius:8px;padding:10px;text-align:left;cursor:pointer}
+.marketOdd strong{float:right;color:#ffe75a}.marketOdd.sel{outline:2px solid #36db91;background:#183026}
+@media(max-width:600px){.marketGrid{grid-template-columns:1fr 1fr}.marketCard{padding:10px}}
+</style>
 </head>
 <body>
 
@@ -310,6 +324,14 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   </div>
 </div>
 
+
+<div id="marketModal" class="marketModal hidden">
+  <div class="marketCard">
+    <div class="marketTop"><div id="marketTitle"><b>Mercados</b></div><button id="marketClose" class="marketClose">FECHAR</button></div>
+    <div id="marketBody"></div>
+  </div>
+</div>
+
 <div id="profileModal" class="mxModal hidden">
   <div class="mxModalCard">
     <button class="mxClose" data-close-profile>×</button>
@@ -380,15 +402,21 @@ function showAuth(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn');
 function showApp(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn'),un=$('#userName'),bal=$('#balanceTop');if(a)a.classList.add('hidden');if(b)b.classList.remove('hidden');if(hp)hp.classList.remove('hidden');if(un)un.textContent=me.name;if(bal)bal.textContent=money(me.demo_balance_cents)}
 function nav(p){page=p;$$('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===p);b.classList.toggle('on',b.dataset.page===p)});render();scrollTo(0,0)}
 function selected(id,pick){return slip.some(x=>x.event_id===id&&x.pick===pick)}
-function addSelection(e,pick){let i=slip.findIndex(x=>x.event_id===e.id),o={event_id:e.id,market:'Resultado Final',pick,odd:+e.odds[pick],home:e.home,away:e.away,league:e.league};if(i>=0&&slip[i].pick===pick)slip.splice(i,1);else{if(i>=0)slip.splice(i,1);slip.push(o)}render()}
+function addSelection(e,pick){addMarketSelection(e,'Resultado Final',pick,+e.odds[pick],pick)}
+function addMarketSelection(e,marketName,pick,odd,label){
+ let key=e.id+'|'+marketName, i=slip.findIndex(x=>x.key===key), o={key,event_id:e.id,market:marketName,pick,odd:+odd,home:e.home,away:e.away,league:e.league,label:label||pick};
+ if(i>=0&&slip[i].pick===pick)slip.splice(i,1);else{if(i>=0)slip.splice(i,1);slip.push(o)}
+ render();
+}
 function cards(){return `<div class=heroRow><div class=hero><small>BEM-VINDO, ${me.name}</small><h2>SEU SALDO <span>${money(me.demo_balance_cents)}</span></h2><small>Conta validada pelo backend.</small></div><div class=hero><small>FUTEBOL</small><h2>GRANDES <span>LIGAS</span></h2><small>Brasil e competições internacionais.</small></div><div class=hero><small>AO VIVO</small><h2><span>${liveEvents.length}</span> EVENTOS</h2><small>Eventos servidos pela API.</small></div></div>`}
-function book(list){let groups={};list.forEach(e=>(groups[e.league]??=[]).push(e));return `<div class=panel><div class=head>FUTEBOL <span>${list.length} eventos</span></div><div class=bookHead><div>Jogo</div><div>1</div><div>X</div><div>2</div><div>+</div></div>${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>`<div class=event><div class=info><small>${e.time}</small><b>${e.home}</b><b>${e.away}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-event="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}<div class=more>+128</div></div>`).join('')}`).join('')}</div>`}
+function crest(name){let p=name.split(/\s+/).filter(Boolean),t=(p[0]?.[0]||'')+(p[1]?.[0]||p[0]?.[1]||'');return `<span class=crest>${t.toUpperCase()}</span>`}
+function book(list){let groups={};list.forEach(e=>(groups[e.league]??=[]).push(e));return `<div class=panel><div class=head>FUTEBOL <span>${list.length} eventos</span></div><div class=bookHead><div>Jogo</div><div>1</div><div>X</div><div>2</div><div>+</div></div>${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>`<div class=event><div class=info><small>${e.time}</small><b class=teamline>${crest(e.home)}${e.home}</b><b class=teamline>${crest(e.away)}${e.away}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-event="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}<button class=moreBtn data-markets="${e.id}">+ MERCADOS</button></div>`).join('')}`).join('')}</div>`}
 function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga','Ligue 1','Primeira Liga','Liga Argentina','MLS'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
 function sports(){let list=events.filter(e=>league==='Todos'||e.league===league);return cards()+`<input class=search id=search placeholder="Buscar futebol..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(list)}`}
-function livePage(){let groups={};liveEvents.slice(0,35).forEach(e=>(groups[e.league]??=[]).push(e));return cards()+`<div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS</div>${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>`<div class=liveRow><div class=info><small>${e.time} • AO VIVO</small><b>${e.home}</b><b>${e.away} · ${e.score}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-liveevent="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}</div>`).join('')}`).join('')}</div>`}
+function livePage(){let groups={};liveEvents.slice(0,60).forEach(e=>(groups[e.league]??=[]).push(e));return cards()+`<div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS</div>${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>`<div class=liveRow><div class=info><small>${e.time} • AO VIVO</small><b class=teamline>${crest(e.home)}${e.home}</b><b class=teamline>${crest(e.away)}${e.away} · ${e.score}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-liveevent="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}<button class=moreBtn data-markets="${e.id}">+ MERCADOS</button></div>`).join('')}`).join('')}</div>`}
 async function betsPage(){let j=await api('/api/bets');$('#main').innerHTML=cards()+`<div class=panel><div class=head>MINHAS APOSTAS <span>${j.bets.length}</span></div><div style="padding:12px">${j.bets.length?j.bets.map(b=>`<div class=betcard><b>#${b.id} • ${money(b.stake_cents)}</b><p>Odd total ${b.total_odd.toFixed(2)}</p><small>${b.status} • ${new Date(b.created_at).toLocaleString('pt-BR')}</small></div>`).join(''):'<div class=empty>Nenhuma aposta demo registrada.</div>'}</div></div>`;bindDynamic()}
 function wallet(){return cards()+`<div class=wallet><small>SALDO DEMO DISPONÍVEL</small><strong>${money(me.demo_balance_cents)}</strong><button class="btn primary" id=addBalance>ADICIONAR R$100 DEMO</button></div><div class=panel><div class=head>CARTEIRA</div><div style="padding:18px;color:#97a4a9">Esta carteira é demonstrativa. Nenhum PIX real é processado nesta versão.</div></div>`}
-function coupon(){let total=slip.reduce((a,x)=>a*x.odd,1);return `<div class=coupon><div class=couponHead>CUPOM DE APOSTAS</div><div class=couponBody>${slip.length?slip.map((x,i)=>`<div class=slip><div class=slipTop><b>${x.home} x ${x.away}</b><button class=remove data-remove="${i}">×</button></div><small>${x.pick} • ${x.league}</small><div style="text-align:right;color:var(--green);font-weight:950">${x.odd.toFixed(2)}</div></div>`).join(''):'<div class=empty>Seu cupom está vazio.<br>Selecione uma odd.</div>'}${slip.length?`<div class=stake><input id=stake type=number min=1 value=10><button class="btn ghost" id=clear>Limpar</button></div><div class=ret><span>Retorno potencial</span><strong id=ret>${money(Math.round(1000*total))}</strong></div><button class="btn primary" style="width:100%" id=place>FAZER APOSTA DEMO</button>`:''}</div></div>`}
+function coupon(){let total=slip.reduce((a,x)=>a*x.odd,1);return `<div class=coupon><div class=couponHead>CUPOM DE APOSTAS</div><div class=couponBody>${slip.length?slip.map((x,i)=>`<div class=slip><div class=slipTop><b>${x.home} x ${x.away}</b><button class=remove data-remove="${i}">×</button></div><small>${x.market}: ${x.label||x.pick} • ${x.league}</small><div style="text-align:right;color:var(--green);font-weight:950">${x.odd.toFixed(2)}</div></div>`).join(''):'<div class=empty>Seu cupom está vazio.<br>Selecione uma odd.</div>'}${slip.length?`<div class=stake><input id=stake type=number min=1 value=10><button class="btn ghost" id=clear>Limpar</button></div><div class=ret><span>Retorno potencial</span><strong id=ret>${money(Math.round(1000*total))}</strong></div><button class="btn primary" style="width:100%" id=place>FAZER APOSTA DEMO</button>`:''}</div></div>`}
 
 function syncMobileCoupon(){
   const btn=$('#mobileCouponBtn'), count=$('#mobileSlipCount'), body=$('#mobileCouponBody');
@@ -432,36 +460,51 @@ async function casinoPage(){
 
 
 function v63Dashboard(){
- const games=[
- ['Brasileirão Série A','Palmeiras','Flamengo','1.35','3.40','9.25'],
- ['Brasileirão Série A','Atlético-MG','Corinthians','2.10','2.90','3.55'],
- ['Libertadores','Boca Juniors','River Plate','3.10','2.80','2.40'],
- ['Premier League','Arsenal','Chelsea','2.05','3.20','3.60']
- ];
+ const featuredLive=liveEvents.slice(0,4), highlights=['Brasileirão Série A','Libertadores','Champions League','Premier League','LaLiga'];
  return `<div class="v63dash">
  <div class="v63stats">
-  <div class="v63card"><small>SEU SALDO</small><strong>R$ ${Number(me?.balance||0).toFixed(2).replace('.',',')}</strong><small>Conta demo</small></div>
-  <div class="v63card"><small>AO VIVO AGORA</small><strong>136</strong><small>Eventos em andamento</small></div>
-  <div class="v63card"><small>GRANDES LIGAS</small><strong>12</strong><small>Campeonatos disponíveis</small></div>
-  <div class="v63card"><small>MINHAS APOSTAS</small><strong>2</strong><small>Acompanhe seus bilhetes</small></div>
+  <div class="v63card"><small>SEU SALDO</small><strong>${money(me.demo_balance_cents)}</strong><small>Conta demo</small></div>
+  <div class="v63card" data-page="live" style="cursor:pointer"><small>AO VIVO AGORA</small><strong>${liveEvents.length}</strong><small>Eventos em andamento</small></div>
+  <div class="v63card" data-page="sports" style="cursor:pointer"><small>GRANDES LIGAS</small><strong>12</strong><small>Campeonatos disponíveis</small></div>
+  <div class="v63card" data-page="bets" style="cursor:pointer"><small>MINHAS APOSTAS</small><strong>VER</strong><small>Acompanhe seus bilhetes</small></div>
  </div>
- <div class="v63section"><div class="v63title">🔴 AO VIVO AGORA <span>Ver todos (136)</span></div><div class="v63live">
- ${games.map((g,i)=>`<div class="v63match"><small>${g[0]} · ${18+i*13}' AO VIVO</small><b>${g[1]}</b><b>${g[2]}</b><div class="v63odds"><span>${g[3]}</span><span>${g[4]}</span><span>${g[5]}</span></div></div>`).join('')}
+ <div class="v63section"><div class="v63title">🔴 AO VIVO AGORA <button class=moreBtn data-page="live">VER TODOS (${liveEvents.length})</button></div><div class="v63live">
+ ${featuredLive.map(e=>`<div class="v63match" data-dash-live="${e.id}"><small>${e.league} · ${e.time} AO VIVO</small><b class=teamline>${crest(e.home)}${e.home}</b><b class=teamline>${crest(e.away)}${e.away} · ${e.score}</b><div class="v63odds">${['1','X','2'].map(p=>`<span>${Number(e.odds[p]).toFixed(2)}</span>`).join('')}</div><button class=moreBtn data-markets="${e.id}">+ MERCADOS</button></div>`).join('')}
  </div></div>
  <div class="v63section"><div class="v63title">⭐ DESTAQUES DO DIA</div><div class="v63features">
- ${['Brasileirão Série A','Libertadores','Champions League','Premier League','LaLiga'].map(x=>`<div class="v63feature">🏆<strong>${x}</strong><small>Ver mercados</small></div>`).join('')}
+ ${highlights.map(x=>`<div class="v63feature" data-highlight-league="${x}">🏆<strong>${x}</strong><small>VER JOGOS E MERCADOS</small></div>`).join('')}
  </div></div>
- <div class="v63section"><div class="v63title">📋 APOSTAS RECENTES</div><table class="v63recent"><tr><th>Evento</th><th>Seleção</th><th>Odd</th><th>Status</th></tr><tr><td>Palmeiras x Flamengo</td><td>Palmeiras</td><td>1.35</td><td>ABERTA</td></tr><tr><td>Atlético-MG x Corinthians</td><td>1X</td><td>1.50</td><td>ABERTA</td></tr></table></div>
+ <div class="v63section"><div class="v63title">📋 APOSTAS RECENTES <button class=moreBtn data-page="bets">VER TODAS</button></div>
+ <table class="v63recent"><tr><th>Evento</th><th>Mercado</th><th>Odd</th><th>Status</th></tr><tr><td>Palmeiras x Flamengo</td><td>Resultado Final</td><td>2.10</td><td>DEMO</td></tr><tr><td>Atlético-MG x Corinthians</td><td>Dupla Chance</td><td>1.50</td><td>DEMO</td></tr></table></div>
  </div>`;
 }
 
 async function render(){if(page==='home'&&me){$('#main').innerHTML=v63Dashboard();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+
+async function openMarkets(eventId){
+  try{
+    let j=await api('/api/events/'+eventId+'/markets'),e=j.event;
+    $('#marketTitle').innerHTML=`<b>${crest(e.home)} ${e.home} x ${crest(e.away)} ${e.away}</b><small style="display:block;color:#9aa7a2">${e.league} • ${e.time||'Ao vivo'}</small>`;
+    $('#marketBody').innerHTML=j.groups.map(g=>`<div class=marketGroup><h4>${g.group}</h4><div class=marketGrid>${g.items.map(x=>`<button class="marketOdd ${slip.some(s=>s.event_id===e.id&&s.market===x.market&&s.pick===x.pick)?'sel':''}" data-market-event="${e.id}" data-market-name="${x.market}" data-market-pick="${x.pick}" data-market-odd="${x.odd}" data-market-label="${x.label}">${x.label}<strong>${Number(x.odd).toFixed(2)}</strong></button>`).join('')}</div></div>`).join('');
+    $('#marketModal').classList.remove('hidden');
+    $$('[data-market-event]').forEach(b=>b.onclick=()=>{
+      addMarketSelection(e,b.dataset.marketName,b.dataset.marketPick,+b.dataset.marketOdd,b.dataset.marketLabel);
+      openMarkets(e.id);
+    });
+  }catch(e){alert(e.message)}
+}
+if($('#marketClose'))$('#marketClose').onclick=()=>$('#marketModal').classList.add('hidden');
+if($('#marketModal'))$('#marketModal').onclick=e=>{if(e.target.id==='marketModal')$('#marketModal').classList.add('hidden')};
+
 function bindDynamic(){
  $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
  $$('[data-market]').forEach(b=>b.onclick=()=>{market=b.dataset.market;render()});
  $$('[data-event]').forEach(b=>b.onclick=()=>{let e=events.find(x=>x.id===b.dataset.event);addSelection(e,b.dataset.pick)});
  $$('[data-liveevent]').forEach(b=>b.onclick=()=>{let e=liveEvents.find(x=>x.id===b.dataset.liveevent);addSelection(e,b.dataset.pick)});
  $$('[data-remove]').forEach(b=>b.onclick=()=>{slip.splice(+b.dataset.remove,1);render()});
+ $$('[data-markets]').forEach(b=>b.onclick=()=>openMarkets(b.dataset.markets));
+ $$('[data-dash-live]').forEach(b=>b.onclick=()=>openMarkets(b.dataset.dashLive));
+ $$('[data-highlight-league]').forEach(b=>b.onclick=()=>{league=b.dataset.highlightLeague;page='sports';render()});
  if($('#clear'))$('#clear').onclick=()=>{slip=[];render()};
  if($('#stake'))$('#stake').oninput=()=>{let t=slip.reduce((a,x)=>a*x.odd,1);$('#ret').textContent=money(Math.round((+$('#stake').value||0)*100*t))};
  if($('#place'))$('#place').onclick=placeBet;
