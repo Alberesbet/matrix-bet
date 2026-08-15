@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07271f">
+<title>MATRIX BET V5.3 CLOUD</title>
+<style>
+:root{
+  --bg:#080c0d;--bg2:#0c1113;--panel:#11191c;--panel2:#182126;--panel3:#20292d;
+  --line:#2d393e;--green:#48e0ad;--green2:#20c58f;--yellow:#f1e43f;
+  --text:#f5f7f8;--mut:#99a5aa;--red:#ff574d;
+}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input{font:inherit}button{cursor:pointer}.hidden{display:none!important}
+.top{height:68px;display:flex;align-items:center;gap:16px;padding:0 18px;background:#08271f;border-bottom:1px solid #194739;position:sticky;top:0;z-index:60}
+.logo{font-size:25px;font-weight:1000;letter-spacing:-1.3px}.logo b{color:var(--yellow)}.spacer{flex:1}
+.topnav{display:flex;height:100%}.topnav button{height:100%;padding:0 15px;border:0;background:transparent;color:#d8dfe1;font-weight:900;font-size:12px}.topnav button.active{color:var(--green);border-bottom:3px solid var(--green)}
+.userBox{display:flex;align-items:center;gap:9px}.userCard{border:1px solid #345048;background:#0f191b;border-radius:9px;padding:7px 10px}.userCard small{display:block;font-size:8px;color:#8e9ba0}.userCard b{font-size:11px}.bal{color:var(--green)!important}
+.btn{border:0;border-radius:8px;padding:10px 13px;font-weight:900}.primary{background:var(--yellow);color:#111}.ghost{background:#192426;color:#fff;border:1px solid #354146}.danger{background:#35191a;color:#ffaaa3;border:1px solid #633234}
+.layout{display:grid;grid-template-columns:210px minmax(0,1fr) 330px;max-width:1700px;margin:auto}
+.side{min-height:calc(100vh - 68px);border-right:1px solid var(--line);padding:14px 10px;background:#091113}.sideTitle{font-size:10px;color:#66757b;margin:17px 10px 6px;font-weight:900}.side button{width:100%;display:flex;gap:10px;align-items:center;padding:10px;border:0;border-radius:7px;background:transparent;color:#dbe1e3;text-align:left}.side button:hover,.side button.on{background:#172126;color:var(--green)}.side button span{flex:1}.side em{font-style:normal;font-size:9px;color:#9eaaae}
+main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:15px 12px;background:#071013}
+.heroRow{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:10px;margin-bottom:12px}.hero{min-height:135px;padding:17px;border:1px solid var(--line);border-radius:10px;background:radial-gradient(circle at 82% 30%,#57db2e55,transparent 28%),linear-gradient(135deg,#111a1e,#102018)}.hero small{color:#b2bdc0}.hero h2{margin:7px 0;font-size:26px}.hero h2 span{color:var(--green)}
+.search{width:100%;height:48px;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;background:#0c1417;color:#fff;padding:0 13px}
+.leagues,.markets{display:flex;gap:7px;overflow:auto;scrollbar-width:none;margin-bottom:10px}.leagues::-webkit-scrollbar,.markets::-webkit-scrollbar{display:none}.leagues button,.markets button{flex:0 0 auto;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:#11191d;color:#d8dfe1}.leagues button.on{color:var(--green);border-color:#5e9e3d;background:#132315}.markets button{border-radius:20px}.markets button.on{background:#fff;color:#111}
+.panel{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#0d1518;margin-bottom:12px}.head{display:flex;align-items:center;padding:11px 12px;background:#111d21;font-weight:900}.head span{margin-left:auto;color:#86959a;font-size:10px}
+.bookHead,.event{display:grid;grid-template-columns:minmax(220px,1.5fr) repeat(3,minmax(72px,.55fr)) 50px}.bookHead{padding:8px;color:#839196;font-size:10px}.bookHead div:not(:first-child){text-align:center}.group{padding:8px 11px;background:#1d472e;color:#e6f5df;font-weight:900;font-size:11px}.event{border-top:1px solid #263035}.info{padding:11px}.info small{display:block;color:#849297}.info b{display:block;font-size:12px}.odd{margin:5px 3px;border:1px solid #2b373c;border-radius:4px;background:#151e22;color:#edf158;font-weight:950;font-size:18px}.odd.sel{background:#284521;color:#ecff8f;border-color:#6ba944}.more{display:grid;place-items:center;color:#93a0a5;font-size:10px}
+.liveTitle{padding:11px;background:#15291d;font-weight:900}.liveRow{display:grid;grid-template-columns:minmax(200px,1.4fr) repeat(3,82px);border-top:1px solid #2a3539}.liveRow .info small{color:var(--green);font-weight:900}
+.coupon{border:1px solid var(--line);border-radius:9px;background:#0d1518;overflow:hidden}.couponHead{padding:12px;border-bottom:1px solid var(--line);font-weight:900}.couponBody{padding:12px}.empty{text-align:center;color:#7f8d92;padding:34px 10px}.slip{padding:10px;border:1px solid #29353a;border-radius:7px;background:#111a1e;margin-bottom:8px}.slip small{color:#859297}.slipTop{display:flex;justify-content:space-between}.remove{border:0;background:none;color:#8a979d}.stake{display:grid;grid-template-columns:1fr 78px;gap:7px}.stake input{height:42px;border:1px solid var(--line);border-radius:5px;background:#071013;color:#fff;padding:0 10px}.ret{display:flex;justify-content:space-between;padding:10px 0}.ret strong{color:var(--green)}
+.betcard{padding:12px;border:1px solid var(--line);border-radius:8px;background:#0e171a;margin-bottom:8px}.wallet{padding:18px;border:1px solid #31564a;border-radius:11px;background:linear-gradient(135deg,#11271f,#0d1818);margin-bottom:10px}.wallet strong{display:block;color:var(--green);font-size:32px;margin:5px 0 13px}
+.auth{min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(180deg,#062b22,#071013 45%)}.authCard{width:min(430px,100%);padding:24px;border:1px solid #315246;border-radius:14px;background:#0d1518}.authCard h2{margin:4px 0 8px}.authCard p{color:var(--mut)}.authCard input{width:100%;height:47px;margin:6px 0;border:1px solid var(--line);border-radius:7px;background:#070d0f;color:#fff;padding:0 11px}.tabs{display:flex;gap:7px;margin:12px 0}.tabs button{flex:1}.msg{min-height:18px;color:#e8e171;font-size:12px}
+.bottomNav{display:none}
+@media(max-width:1200px){.layout{grid-template-columns:190px minmax(0,1fr)}.right{display:none}.heroRow{grid-template-columns:1fr 1fr}.heroRow .hero:nth-child(3){display:none}}
+@media(max-width:850px){
+ .topnav,.side{display:none}.layout{display:block}.top{padding:0 10px}.top .logo{font-size:21px}.userCard{padding:6px 8px}.userCard small{font-size:7px}.userCard b{font-size:10px}
+ main{padding:10px 10px 80px}.heroRow{grid-template-columns:1fr}.heroRow .hero:not(:first-child){display:none}
+ .bookHead,.event{grid-template-columns:minmax(150px,1.25fr) repeat(3,70px) 36px}.odd{font-size:16px}.liveRow{grid-template-columns:minmax(150px,1.25fr) repeat(3,70px)}
+ .bottomNav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:100;height:70px;background:#202526;border-top:1px solid #363d3f;padding-bottom:max(3px,env(safe-area-inset-bottom))}
+ .bottomNav button{position:relative;flex:1;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.bottomNav button b{font-size:10px}.bottomNav button.active{color:var(--green)}.bottomNav button.active:before{content:"";position:absolute;top:0;width:42px;height:3px;background:var(--green)}.ico{font-size:20px}.badge{position:absolute;top:4px;right:18%;background:var(--red);color:#fff;border-radius:10px;padding:2px 5px;font-size:8px;font-style:normal}
+}
+
+/* V5.2 MOBILE */
+.mobileCouponDrawer,.mobileCouponBtn{display:none}
+@media(max-width:850px){
+  body{overflow-x:hidden}
+  .top{height:60px!important;padding:0 8px!important}
+  .top .logo{font-size:19px!important}
+  .userBox{gap:5px!important}
+  .userCard{padding:5px 6px!important;border-radius:7px!important}
+  .userCard>div:first-child{display:none}
+  .userCard small{font-size:6.5px!important}
+  .userCard b{font-size:9px!important}
+  #logout{padding:8px 9px!important;font-size:9px!important}
+  .main{padding:9px 8px 86px!important}
+  .heroRow{margin-bottom:8px!important}
+  .hero{min-height:96px!important;padding:13px!important}
+  .hero h2{font-size:21px!important}
+  .hero small{font-size:10px!important}
+  .search{height:45px!important;font-size:14px!important;margin-bottom:8px!important}
+  .leagues,.markets{gap:6px!important;margin-bottom:8px!important;padding-bottom:2px!important}
+  .leagues button,.markets button{padding:9px 12px!important;font-size:12px!important}
+  .panel{border-radius:8px!important;margin-bottom:8px!important}
+  .head{padding:10px!important}
+  .bookHead,.event{grid-template-columns:minmax(128px,1.25fr) repeat(3,minmax(58px,.58fr)) 30px!important}
+  .bookHead{font-size:8px!important;padding:6px!important}
+  .group{padding:7px 8px!important;font-size:10px!important}
+  .info{padding:8px!important;min-width:0}
+  .info small{font-size:9px!important}
+  .info b{font-size:11px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .odd{margin:3px 2px!important;min-height:58px!important;font-size:16px!important;border-radius:5px!important}
+  .more{font-size:8px!important}
+  .liveRow{grid-template-columns:minmax(128px,1.25fr) repeat(3,minmax(58px,.58fr))!important}
+  .liveTitle{padding:9px!important;font-size:11px!important}
+  .right{display:none!important}
+  .bottomNav{height:68px!important}
+  .bottomNav button b{font-size:9px!important}
+  .bottomNav .ico{font-size:19px!important}
+  .badge{right:14%!important}
+  .mobileCouponBtn{
+    display:flex;position:fixed;right:12px;bottom:76px;z-index:120;
+    align-items:center;gap:6px;border:1px solid #4d775f;border-radius:999px;
+    background:#173126;color:#fff;padding:10px 13px;box-shadow:0 8px 24px #0008;
+    font-weight:900
+  }
+  .mobileCouponBtn.hidden{display:none!important}
+  .mobileCouponBtn span{font-size:17px}
+  .mobileCouponBtn b{font-size:11px}
+  .mobileCouponBtn em{
+    min-width:19px;height:19px;border-radius:999px;background:var(--yellow);
+    color:#111;font-size:9px;font-style:normal;display:grid;place-items:center
+  }
+  .mobileCouponDrawer{
+    position:fixed;inset:0;z-index:150;background:#0008;align-items:flex-end
+  }
+  .mobileCouponDrawer:not(.hidden){display:flex}
+  .mobileCouponSheet{
+    width:100%;max-height:78vh;overflow:auto;background:#0b1417;
+    border-radius:18px 18px 0 0;border-top:1px solid #334247;
+    padding:8px 10px calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -18px 45px #000b
+  }
+  .mobileCouponGrab{width:44px;height:4px;border-radius:4px;background:#4b565a;margin:2px auto 8px}
+  .mobileCouponTop{display:flex;align-items:center;padding:5px 3px 9px}
+  .mobileCouponTop b{font-size:14px}
+  .mobileCouponTop button{margin-left:auto;border:0;background:none;color:#fff;font-size:27px}
+  #mobileCouponBody .coupon{border:0!important;background:transparent!important}
+  #mobileCouponBody .couponHead{display:none!important}
+  #mobileCouponBody .couponBody{padding:0!important}
+  #mobileCouponBody .empty{padding:22px 8px!important}
+  .wallet{padding:15px!important}
+  .wallet strong{font-size:27px!important}
+  .betcard{font-size:12px!important}
+}
+@media(max-width:390px){
+  .bookHead,.event{grid-template-columns:minmax(112px,1.15fr) repeat(3,minmax(52px,.55fr)) 26px!important}
+  .liveRow{grid-template-columns:minmax(112px,1.15fr) repeat(3,minmax(52px,.55fr))!important}
+  .odd{font-size:14px!important}
+  .leagues button,.markets button{font-size:11px!important;padding:8px 10px!important}
+}
+
+</style>
+</head>
+<body>
+<section id="authScreen" class="auth">
+  <div class="authCard">
+    <div class="logo">MATRIX <b>BET</b></div>
+    <h2>Conta MATRIX BET</h2>
+    <p>Cadastro e login validados pelo backend.</p>
+    <div class="tabs"><button class="btn primary" id="regTab">Criar conta</button><button class="btn ghost" id="loginTab">Entrar</button></div>
+    <input id="name" placeholder="Seu nome">
+    <input id="email" type="email" placeholder="E-mail">
+    <input id="password" type="password" placeholder="Senha (mín. 8 caracteres)">
+    <button class="btn primary" style="width:100%;margin-top:8px" id="submit">Criar conta</button>
+    <div id="msg" class="msg"></div>
+  </div>
+</section>
+
+<section id="appScreen" class="hidden">
+<header class="top">
+  <div class="logo">MATRIX <b>BET</b></div>
+  <nav class="topnav">
+    <button data-page="home" class="active">INÍCIO</button>
+    <button data-page="sports">FUTEBOL</button>
+    <button data-page="live">AO VIVO</button>
+    <button data-page="bets">MINHAS APOSTAS</button>
+    <button data-page="wallet">CARTEIRA</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="userBox">
+    <div class="userCard"><div><small>USUÁRIO</small><b id="userName">—</b></div><div><small>SALDO DEMO</small><b class="bal" id="balanceTop">—</b></div></div>
+    <button class="btn danger" id="logout">SAIR</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side">
+    <button data-page="home" class="on">⌂ <span>Início</span></button>
+    <button data-page="live">◉ <span>Ao Vivo</span><em>136</em></button>
+    <button data-page="bets">▤ <span>Minhas Apostas</span></button>
+    <button data-page="wallet">R$ <span>Carteira</span></button>
+    <div class="sideTitle">COMPETIÇÕES</div>
+    <button data-league="Brasileirão Série A">🇧🇷 <span>Brasileirão Série A</span></button>
+    <button data-league="Brasileirão Série B">🇧🇷 <span>Brasileirão Série B</span></button>
+    <button data-league="Libertadores">🏆 <span>Libertadores</span></button>
+    <button data-league="Champions League">⚽ <span>Champions League</span></button>
+    <button data-league="Premier League">🏴 <span>Premier League</span></button>
+    <button data-league="LaLiga">🇪🇸 <span>LaLiga</span></button>
+    <button data-league="Serie A">🇮🇹 <span>Serie A</span></button>
+    <button data-league="Bundesliga">🇩🇪 <span>Bundesliga</span></button>
+  </aside>
+  <main id="main"></main>
+  <aside class="right" id="right"></aside>
+</div>
+
+<nav class="bottomNav">
+  <button data-page="home" class="active"><span class="ico">⌂</span><b>Início</b></button>
+  <button data-page="sports"><span class="ico">⚽</span><b>Futebol</b></button>
+  <button data-page="live"><span class="ico">◉</span><b>Ao Vivo</b><em class="badge">136</em></button>
+  <button data-page="bets"><span class="ico">▤</span><b>Apostas</b></button>
+  <button data-page="wallet"><span class="ico">R$</span><b>Carteira</b></button>
+</nav>
+</section>
+
+<div id="mobileCouponDrawer" class="mobileCouponDrawer hidden">
+  <div class="mobileCouponSheet">
+    <div class="mobileCouponGrab"></div>
+    <div class="mobileCouponTop">
+      <b>Cupom de apostas</b>
+      <button id="closeMobileCoupon">×</button>
+    </div>
+    <div id="mobileCouponBody"></div>
+  </div>
+</div>
+<button id="mobileCouponBtn" class="mobileCouponBtn hidden">
+  <span>🧾</span>
+  <b>Cupom</b>
+  <em id="mobileSlipCount">0</em>
+</button>
+
+<script>
+let token=localStorage.getItem('mxv51_token')||'',mode='register',page='home',league='Todos',market='Principais',me=null,events=[],liveEvents=[],slip=[];
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const money=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+async function api(path,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json'};if(token)opt.headers.Authorization='Bearer '+token;let r=await fetch(path,opt);let j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Erro');return j}
+function setMode(m){mode=m;$('#name').classList.toggle('hidden',m==='login');$('#submit').textContent=m==='login'?'Entrar':'Criar conta';$('#regTab').className='btn '+(m==='register'?'primary':'ghost');$('#loginTab').className='btn '+(m==='login'?'primary':'ghost')}
+async function submitAuth(){try{$('#msg').textContent='';let body={email:$('#email').value,password:$('#password').value};if(mode==='register')body.name=$('#name').value;let j=await api('/api/auth/'+(mode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});token=j.token;localStorage.setItem('mxv51_token',token);await boot()}catch(e){$('#msg').textContent=e.message}}
+async function boot(){if(!token){showAuth();return}try{me=await api('/api/me');events=(await api('/api/events')).events;liveEvents=(await api('/api/live')).events;showApp();render()}catch(e){token='';localStorage.removeItem('mxv51_token');showAuth()}}
+function showAuth(){$('#authScreen').classList.remove('hidden');$('#appScreen').classList.add('hidden')}
+function showApp(){$('#authScreen').classList.add('hidden');$('#appScreen').classList.remove('hidden');$('#userName').textContent=me.name;$('#balanceTop').textContent=money(me.demo_balance_cents)}
+function nav(p){page=p;$$('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===p);b.classList.toggle('on',b.dataset.page===p)});render();scrollTo(0,0)}
+function selected(id,pick){return slip.some(x=>x.event_id===id&&x.pick===pick)}
+function addSelection(e,pick){let i=slip.findIndex(x=>x.event_id===e.id),o={event_id:e.id,market:'Resultado Final',pick,odd:+e.odds[pick],home:e.home,away:e.away,league:e.league};if(i>=0&&slip[i].pick===pick)slip.splice(i,1);else{if(i>=0)slip.splice(i,1);slip.push(o)}render()}
+function cards(){return `<div class=heroRow><div class=hero><small>BEM-VINDO, ${me.name}</small><h2>SEU SALDO <span>${money(me.demo_balance_cents)}</span></h2><small>Conta validada pelo backend.</small></div><div class=hero><small>FUTEBOL</small><h2>GRANDES <span>LIGAS</span></h2><small>Brasil e competições internacionais.</small></div><div class=hero><small>AO VIVO</small><h2><span>${liveEvents.length}</span> EVENTOS</h2><small>Eventos servidos pela API.</small></div></div>`}
+function book(list){let groups={};list.forEach(e=>(groups[e.league]??=[]).push(e));return `<div class=panel><div class=head>FUTEBOL <span>${list.length} eventos</span></div><div class=bookHead><div>Jogo</div><div>1</div><div>X</div><div>2</div><div>+</div></div>${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>`<div class=event><div class=info><small>${e.time}</small><b>${e.home}</b><b>${e.away}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-event="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}<div class=more>+128</div></div>`).join('')}`).join('')}</div>`}
+function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
+function sports(){let list=events.filter(e=>league==='Todos'||e.league===league);return cards()+`<input class=search id=search placeholder="Buscar futebol..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(list)}`}
+function livePage(){let groups={};liveEvents.slice(0,35).forEach(e=>(groups[e.league]??=[]).push(e));return cards()+`<div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS</div>${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>`<div class=liveRow><div class=info><small>${e.time} • AO VIVO</small><b>${e.home}</b><b>${e.away} · ${e.score}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-liveevent="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}</div>`).join('')}`).join('')}</div>`}
+async function betsPage(){let j=await api('/api/bets');$('#main').innerHTML=cards()+`<div class=panel><div class=head>MINHAS APOSTAS <span>${j.bets.length}</span></div><div style="padding:12px">${j.bets.length?j.bets.map(b=>`<div class=betcard><b>#${b.id} • ${money(b.stake_cents)}</b><p>Odd total ${b.total_odd.toFixed(2)}</p><small>${b.status} • ${new Date(b.created_at).toLocaleString('pt-BR')}</small></div>`).join(''):'<div class=empty>Nenhuma aposta demo registrada.</div>'}</div></div>`;bindDynamic()}
+function wallet(){return cards()+`<div class=wallet><small>SALDO DEMO DISPONÍVEL</small><strong>${money(me.demo_balance_cents)}</strong><button class="btn primary" id=addBalance>ADICIONAR R$100 DEMO</button></div><div class=panel><div class=head>CARTEIRA</div><div style="padding:18px;color:#97a4a9">Esta carteira é demonstrativa. Nenhum PIX real é processado nesta versão.</div></div>`}
+function coupon(){let total=slip.reduce((a,x)=>a*x.odd,1);return `<div class=coupon><div class=couponHead>CUPOM DE APOSTAS</div><div class=couponBody>${slip.length?slip.map((x,i)=>`<div class=slip><div class=slipTop><b>${x.home} x ${x.away}</b><button class=remove data-remove="${i}">×</button></div><small>${x.pick} • ${x.league}</small><div style="text-align:right;color:var(--green);font-weight:950">${x.odd.toFixed(2)}</div></div>`).join(''):'<div class=empty>Seu cupom está vazio.<br>Selecione uma odd.</div>'}${slip.length?`<div class=stake><input id=stake type=number min=1 value=10><button class="btn ghost" id=clear>Limpar</button></div><div class=ret><span>Retorno potencial</span><strong id=ret>${money(Math.round(1000*total))}</strong></div><button class="btn primary" style="width:100%" id=place>FAZER APOSTA DEMO</button>`:''}</div></div>`}
+
+function syncMobileCoupon(){
+  const btn=$('#mobileCouponBtn'), count=$('#mobileSlipCount'), body=$('#mobileCouponBody');
+  if(!me){ if(btn)btn.classList.add('hidden'); return; }
+  if(btn) btn.classList.remove('hidden');
+  if(count) count.textContent=slip.length;
+  if(body) body.innerHTML=coupon();
+  bindMobileCouponControls();
+}
+function bindMobileCouponControls(){
+  const body=$('#mobileCouponBody');
+  if(!body)return;
+  body.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{slip.splice(+b.dataset.remove,1);render();syncMobileCoupon()});
+  const clear=body.querySelector('#clear');
+  if(clear)clear.onclick=()=>{slip=[];render();syncMobileCoupon()};
+  const stake=body.querySelector('#stake');
+  if(stake)stake.oninput=()=>{
+    let t=slip.reduce((a,x)=>a*x.odd,1);
+    const ret=body.querySelector('#ret');
+    if(ret)ret.textContent=money(Math.round((+stake.value||0)*100*t));
+  };
+  const place=body.querySelector('#place');
+  if(place)place.onclick=async()=>{
+    let stakeEl=body.querySelector('#stake');
+    let stake=Math.round((+(stakeEl?.value||0))*100);
+    try{
+      await api('/api/bets',{method:'POST',body:JSON.stringify({stake_cents:stake,selections:slip.map(({event_id,market,pick,odd})=>({event_id,market,pick,odd}))})});
+      slip=[];me=await api('/api/me');showApp();page='bets';$('#mobileCouponDrawer').classList.add('hidden');render();
+    }catch(e){alert(e.message)}
+  };
+}
+
+async function render(){if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+function bindDynamic(){
+ $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
+ $$('[data-market]').forEach(b=>b.onclick=()=>{market=b.dataset.market;render()});
+ $$('[data-event]').forEach(b=>b.onclick=()=>{let e=events.find(x=>x.id===b.dataset.event);addSelection(e,b.dataset.pick)});
+ $$('[data-liveevent]').forEach(b=>b.onclick=()=>{let e=liveEvents.find(x=>x.id===b.dataset.liveevent);addSelection(e,b.dataset.pick)});
+ $$('[data-remove]').forEach(b=>b.onclick=()=>{slip.splice(+b.dataset.remove,1);render()});
+ if($('#clear'))$('#clear').onclick=()=>{slip=[];render()};
+ if($('#stake'))$('#stake').oninput=()=>{let t=slip.reduce((a,x)=>a*x.odd,1);$('#ret').textContent=money(Math.round((+$('#stake').value||0)*100*t))};
+ if($('#place'))$('#place').onclick=placeBet;
+ if($('#addBalance'))$('#addBalance').onclick=async()=>{let j=await api('/api/demo/add-balance',{method:'POST'});me.demo_balance_cents=j.demo_balance_cents;showApp();render()};
+ if($('#search'))$('#search').oninput=e=>{let q=e.target.value.toLowerCase();$$('.event').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'grid':'none')};
+}
+async function placeBet(){try{let stake=Math.round((+$('#stake').value||0)*100);await api('/api/bets',{method:'POST',body:JSON.stringify({stake_cents:stake,selections:slip.map(({event_id,market,pick,odd})=>({event_id,market,pick,odd}))})});slip=[];me=await api('/api/me');showApp();page='bets';render()}catch(e){alert(e.message)}}
+$('#regTab').onclick=()=>setMode('register');$('#loginTab').onclick=()=>setMode('login');$('#submit').onclick=submitAuth;$('#logout').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch{}token='';localStorage.removeItem('mxv51_token');me=null;showAuth()};$$('[data-page]').forEach(b=>b.onclick=()=>nav(b.dataset.page));
+$('#mobileCouponBtn').onclick=()=>{syncMobileCoupon();$('#mobileCouponDrawer').classList.remove('hidden')};
+$('#closeMobileCoupon').onclick=()=>$('#mobileCouponDrawer').classList.add('hidden');
+$('#mobileCouponDrawer').onclick=e=>{if(e.target===$('#mobileCouponDrawer'))$('#mobileCouponDrawer').classList.add('hidden')};
+
+setMode('register');boot();
+</script>
+</body>
+</html>
