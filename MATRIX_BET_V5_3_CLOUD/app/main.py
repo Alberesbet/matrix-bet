@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.9.2 ADMIN SETUP API", version="5.9.2")
+app = FastAPI(title="MATRIX BET V5.9.3 ADMIN SETUP FIX API", version="5.9.3")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -420,7 +420,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.9.2",
+        "version": "5.9.3",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -819,20 +819,27 @@ def admin_setup(data: AdminSetupIn, db: Session = Depends(get_db)):
         raise HTTPException(409, "Este e-mail já está em uso")
 
     # Admin does not need CPF for account administration.
+    salt_hex = secrets.token_hex(16)
     admin_user = User(
         name=data.name.strip(),
         email=email,
         cpf_hash="ADMIN-" + secrets.token_hex(16),
         cpf_last4="",
-        password_hash=hash_password(data.password),
+        password_hash=hash_password(data.password, salt_hex),
+        salt=salt_hex,
         is_admin=1,
         is_blocked=0,
         demo_balance_cents=0,
+        created_at=now_iso(),
     )
-    db.add(admin_user)
-    db.flush()
-    audit(db, admin_user.id, "ADMIN_INITIAL_SETUP", "Primeiro administrador criado")
-    db.commit()
+    try:
+        db.add(admin_user)
+        db.flush()
+        audit(db, admin_user.id, "ADMIN_INITIAL_SETUP", "Primeiro administrador criado")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Não foi possível criar o administrador")
     return {"ok": True, "message": "Administrador criado. Agora faça o login."}
 
 @app.post("/api/admin/login")
@@ -999,7 +1006,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "5.9.2",
+        "version": "5.9.3",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 
