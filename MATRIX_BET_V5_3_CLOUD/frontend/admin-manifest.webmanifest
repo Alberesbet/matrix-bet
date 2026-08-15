@@ -1,9 +1,9 @@
 {
-  "id": "/matrix-bet-admin-v1",
+  "id": "/matrix-bet-admin",
   "name": "MATRIX BET ADMIN",
   "short_name": "MATRIX ADMIN",
   "description": "Painel administrativo MATRIX BET",
-  "start_url": "/",
+  "start_url": "/painel-adm?pwa=admin&v=6.6.0",
   "scope": "/",
   "display": "standalone",
   "background_color": "#07100d",

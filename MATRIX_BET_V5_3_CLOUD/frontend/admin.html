@@ -14,7 +14,7 @@
 }
 
 </style></head><body>
-<header class=top><div class=logo>MATRIX <b>BET ADMIN</b> <span style="font-size:10px;color:#54d9b0">APP ADM SEPARADO</span> <span style="font-size:11px;color:#91a19a">V6.0</span></div><span id=dbpill class=dbpill>Banco: verificando...</span><div class=spacer></div>
+<header class=top><div class=logo>MATRIX <b>BET ADMIN</b> <span style="font-size:10px;color:#54d9b0">APP ADM SEPARADO</span> <span style="font-size:11px;color:#91a19a">V6.6</span></div><span id=dbpill class=dbpill>Banco: verificando...</span><div class=spacer></div>
 <button class="btn primary" id="installAdminApp">⬇ INSTALAR APP ADM</button>
 <button class="btn danger hidden" id=logout>Sair</button></header>
 <section id=login class=login>
@@ -172,4 +172,30 @@ if('serviceWorker' in navigator){
 }
 
 if(token)showApp();else checkAdminSetup();
-</script></body></html>
+</script>
+<script id="v66-admin-update">
+(async()=>{
+  if(!('serviceWorker' in navigator)) return;
+  try{
+    const reg=await navigator.serviceWorker.register('/admin-service-worker.js',{scope:'/'});
+    await reg.update();
+    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    reg.addEventListener('updatefound',()=>{
+      const nw=reg.installing;
+      if(!nw) return;
+      nw.addEventListener('statechange',()=>{
+        if(nw.state==='installed' && navigator.serviceWorker.controller){
+          nw.postMessage({type:'SKIP_WAITING'});
+        }
+      });
+    });
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(!sessionStorage.getItem('mx66_admin_reloaded')){
+        sessionStorage.setItem('mx66_admin_reloaded','1');
+        location.reload();
+      }
+    });
+  }catch(e){console.warn('PWA admin update',e)}
+})();
+</script>
+</body></html>

@@ -1,0 +1,18 @@
+MATRIX BET V6.6 - LINKS FIXOS
+
+USUÁRIO
+https://matrix-bet.onrender.com/
+
+ADMINISTRADOR
+https://matrix-bet.onrender.com/painel-adm
+
+IMPORTANTE
+O Render continuará mostrando apenas um Primary URL porque existe apenas um Web Service.
+O endereço do ADM é uma rota dentro do mesmo serviço.
+
+ATUALIZAÇÃO PWA
+- Usuário e ADM têm manifests distintos.
+- Usuário e ADM têm service workers distintos.
+- Cada um usa um cache/versionamento separado.
+- Quando uma nova versão é publicada, ambos verificam atualização.
+- Se houver versão nova, o service worker novo assume e a tela é recarregada uma vez.
