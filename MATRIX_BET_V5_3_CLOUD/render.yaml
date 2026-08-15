@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: matrix-bet-v53
+    name: matrix-bet
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -11,6 +11,8 @@ services:
         fromDatabase:
           name: matrix-bet-db
           property: connectionString
+      - key: PUBLIC_BASE_URL
+        value: https://matrix-bet.onrender.com
 
 databases:
   - name: matrix-bet-db

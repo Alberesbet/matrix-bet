@@ -36,12 +36,14 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    future=True,
-    connect_args=connect_args
-)
+engine_kwargs = {
+    "pool_pre_ping": True,
+    "future": True,
+    "connect_args": connect_args,
+}
+if DATABASE_URL.startswith("postgresql"):
+    engine_kwargs.update({"pool_recycle": 300, "pool_size": 5, "max_overflow": 5})
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 class Base(DeclarativeBase):
@@ -133,7 +135,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.6 ADMIN API", version="5.6.1")
+app = FastAPI(title="MATRIX BET V5.7 POSTGRES + ADMIN API", version="5.7.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -339,6 +341,9 @@ class TicketReplyIn(BaseModel):
 class UserAdminUpdateIn(BaseModel):
     is_blocked: bool
 
+class UserBalanceAdminIn(BaseModel):
+    demo_balance_cents: int = Field(ge=0, le=100000000)
+
 class SelectionIn(BaseModel):
     event_id: str
     market: str
@@ -393,10 +398,20 @@ LIVE_LOOKUP = {e["id"]: e for e in LIVE}
 
 @app.get("/health")
 def health():
+    db_ok = True
+    db_error = ""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_ok = False
+        db_error = exc.__class__.__name__
     return {
-        "ok": True,
-        "version": "5.6.1",
-        "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite"
+        "ok": db_ok,
+        "version": "5.7.0",
+        "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
+        "persistent_database": DATABASE_URL.startswith("postgresql"),
+        "db_error": db_error,
     }
 
 @app.post("/api/auth/register")
@@ -745,53 +760,96 @@ def admin_stats(admin: User = Depends(get_admin_user), db: Session = Depends(get
     users_count = db.scalar(select(func.count(User.id)).where(User.is_admin == 0)) or 0
     blocked_count = db.scalar(select(func.count(User.id)).where(User.is_blocked == 1, User.is_admin == 0)) or 0
     bets_count = db.scalar(select(func.count(Bet.id))) or 0
+    open_bets = db.scalar(select(func.count(Bet.id)).where(Bet.status == "OPEN")) or 0
     open_tickets = db.scalar(select(func.count(SupportTicket.id)).where(SupportTicket.status != "RESOLVED")) or 0
-    return {
-        "users": users_count,
-        "blocked_users": blocked_count,
-        "bets": bets_count,
-        "open_tickets": open_tickets
-    }
+    stake_total = db.scalar(select(func.coalesce(func.sum(Bet.stake_cents), 0))) or 0
+    return {"users": users_count, "blocked_users": blocked_count, "bets": bets_count,
+            "open_bets": open_bets, "open_tickets": open_tickets, "stake_total_cents": int(stake_total),
+            "database": "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite",
+            "persistent_database": DATABASE_URL.startswith("postgresql")}
 
 @app.get("/api/admin/users")
-def admin_users(admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(User).where(User.is_admin == 0).order_by(User.id.desc()).limit(500)
-    ).all()
-    return {"users": [{
-        "id":u.id,"name":u.name,"email":u.email,
+def admin_users(q: str = "", blocked: str = "all", admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    stmt = select(User).where(User.is_admin == 0)
+    q = q.strip()
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where((User.name.ilike(like)) | (User.email.ilike(like)))
+    if blocked == "yes":
+        stmt = stmt.where(User.is_blocked == 1)
+    elif blocked == "no":
+        stmt = stmt.where(User.is_blocked == 0)
+    rows = db.scalars(stmt.order_by(User.id.desc()).limit(500)).all()
+    return {"users": [{"id":u.id,"name":u.name,"email":u.email,
         "cpf_masked": ("***.***.***-" + u.cpf_last4[-2:]) if u.cpf_last4 else "—",
-        "is_blocked": bool(u.is_blocked),
-        "demo_balance_cents":u.demo_balance_cents,
-        "created_at":u.created_at
-    } for u in rows]}
+        "is_blocked": bool(u.is_blocked),"demo_balance_cents":u.demo_balance_cents,
+        "created_at":u.created_at} for u in rows]}
 
-@app.patch("/api/admin/users/{user_id}")
-def admin_update_user(
-    user_id: int,
-    data: UserAdminUpdateIn,
-    admin: User = Depends(get_admin_user),
-    db: Session = Depends(get_db)
-):
+@app.get("/api/admin/users/{user_id}/details")
+def admin_user_details(user_id: int, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
     u = db.get(User, user_id)
     if not u or u.is_admin:
         raise HTTPException(404, "Usuário não encontrado")
+    bets = db.scalars(select(Bet).where(Bet.user_id == user_id).order_by(Bet.id.desc()).limit(100)).all()
+    tickets = db.scalars(select(SupportTicket).where(SupportTicket.user_id == user_id).order_by(SupportTicket.id.desc()).limit(100)).all()
+    activity = db.scalars(select(AuditLog).where(AuditLog.user_id == user_id).order_by(AuditLog.id.desc()).limit(150)).all()
+    return {"user":{"id":u.id,"name":u.name,"email":u.email,
+            "cpf_masked": ("***.***.***-" + u.cpf_last4[-2:]) if u.cpf_last4 else "—",
+            "is_blocked":bool(u.is_blocked),"demo_balance_cents":u.demo_balance_cents,"created_at":u.created_at},
+        "bets":[{"id":b.id,"stake_cents":b.stake_cents,"total_odd":b.total_odd,
+                 "potential_return_cents":b.potential_return_cents,"status":b.status,"created_at":b.created_at} for b in bets],
+        "tickets":[{"id":t.id,"subject":t.subject,"status":t.status,"created_at":t.created_at,"updated_at":t.updated_at} for t in tickets],
+        "activity":[{"id":a.id,"action":a.action,"details":a.details,"created_at":a.created_at} for a in activity]}
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, data: UserAdminUpdateIn, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    u = db.get(User, user_id)
+    if not u or u.is_admin: raise HTTPException(404, "Usuário não encontrado")
     u.is_blocked = 1 if data.is_blocked else 0
     audit(db, admin.id, "ADMIN_USER_BLOCK_CHANGE", f"user={user_id};blocked={data.is_blocked}")
     db.commit()
     return {"ok": True}
 
+@app.patch("/api/admin/users/{user_id}/demo-balance")
+def admin_update_demo_balance(user_id: int, data: UserBalanceAdminIn, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    u = db.get(User, user_id)
+    if not u or u.is_admin: raise HTTPException(404, "Usuário não encontrado")
+    old = u.demo_balance_cents
+    u.demo_balance_cents = data.demo_balance_cents
+    audit(db, admin.id, "ADMIN_DEMO_BALANCE_CHANGE", f"user={user_id};old={old};new={data.demo_balance_cents}")
+    db.commit()
+    return {"ok": True, "demo_balance_cents": u.demo_balance_cents}
+
 @app.get("/api/admin/bets")
-def admin_bets(admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
-    rows = db.execute(
-        select(Bet, User).join(User, User.id == Bet.user_id).order_by(Bet.id.desc()).limit(500)
-    ).all()
-    return {"bets": [{
-        "id":b.id,"user_id":u.id,"username":u.name,"email":u.email,
-        "stake_cents":b.stake_cents,"total_odd":b.total_odd,
-        "potential_return_cents":b.potential_return_cents,
-        "status":b.status,"created_at":b.created_at
-    } for b,u in rows]}
+def admin_bets(q: str = "", status: str = "all", admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    stmt = select(Bet, User).join(User, User.id == Bet.user_id)
+    q = q.strip()
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where((User.name.ilike(like)) | (User.email.ilike(like)))
+    if status != "all":
+        stmt = stmt.where(Bet.status == status.upper())
+    rows = db.execute(stmt.order_by(Bet.id.desc()).limit(500)).all()
+    return {"bets": [{"id":b.id,"user_id":u.id,"username":u.name,"email":u.email,
+        "stake_cents":b.stake_cents,"total_odd":b.total_odd,"potential_return_cents":b.potential_return_cents,
+        "status":b.status,"created_at":b.created_at} for b,u in rows]}
+
+@app.get("/api/admin/activity")
+def admin_activity(q: str = "", admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    stmt = select(AuditLog).order_by(AuditLog.id.desc())
+    q = q.strip()
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where((AuditLog.action.ilike(like)) | (AuditLog.details.ilike(like)))
+    rows = db.scalars(stmt.limit(500)).all()
+    user_ids = {a.user_id for a in rows if a.user_id}
+    users = {}
+    if user_ids:
+        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all():
+            users[u.id] = u
+    return {"activity": [{"id":a.id,"user_id":a.user_id,
+        "username":users[a.user_id].name if a.user_id in users else "Sistema",
+        "action":a.action,"details":a.details,"created_at":a.created_at} for a in rows]}
 
 @app.get("/api/admin/support")
 def admin_support(admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
