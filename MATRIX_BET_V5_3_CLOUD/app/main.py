@@ -83,6 +83,41 @@ class Bet(Base):
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class UserPaymentAccount(Base):
+    __tablename__ = "user_payment_accounts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    holder_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    holder_cpf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    pix_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    verified: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+
+class PixCharge(Base):
+    __tablename__ = "pix_charges"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    txid: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    pix_copy_paste: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_ref: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    paid_at: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # deposit / withdrawal
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    pix_key: Mapped[Optional[str]] = mapped_column(String(180), nullable=True)
+    receipt_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    decided_at: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -139,7 +174,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.9.6 DUAL APP API", version="5.9.6")
+app = FastAPI(title="MATRIX BET V6.1 PIX SANDBOX API", version="6.1.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -420,7 +455,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.9.6",
+        "version": "6.1.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -621,6 +656,211 @@ def add_demo_balance(
     db.refresh(user_db)
     return {"demo_balance_cents":user_db.demo_balance_cents}
 
+
+
+
+# ---------- PIX Sandbox / Provider-ready ----------
+def payment_mode() -> str:
+    return os.getenv("PAYMENTS_MODE", "sandbox").strip().lower()
+
+def _payment_account(db: Session, user_id: int):
+    return db.scalar(select(UserPaymentAccount).where(UserPaymentAccount.user_id == user_id))
+
+@app.get("/api/payments/status")
+def payments_status():
+    return {
+        "mode": payment_mode(),
+        "live_enabled": False,
+        "provider": os.getenv("PIX_PROVIDER", "sandbox"),
+        "message": "Modo sandbox. Transações reais desativadas."
+    }
+
+@app.get("/api/payments/account")
+def get_payment_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    acc = _payment_account(db, user.id)
+    if not acc:
+        return {"configured": False}
+    return {
+        "configured": True,
+        "holder_name": acc.holder_name,
+        "pix_key": acc.pix_key,
+        "verified": bool(acc.verified)
+    }
+
+@app.put("/api/payments/account")
+def set_payment_account(data: PaymentAccountIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cpf = only_digits(data.cpf)
+    if not valid_cpf(cpf):
+        raise HTTPException(422, "CPF inválido")
+    if user.cpf_hash and cpf_digest(cpf) != user.cpf_hash:
+        raise HTTPException(400, "O CPF da conta de pagamento deve ser o mesmo do cadastro")
+    acc = _payment_account(db, user.id)
+    if not acc:
+        acc = UserPaymentAccount(
+            user_id=user.id,
+            holder_name=data.holder_name.strip(),
+            holder_cpf_hash=cpf_digest(cpf),
+            pix_key=data.pix_key.strip(),
+            verified=1,
+            created_at=now_iso()
+        )
+        db.add(acc)
+    else:
+        acc.holder_name=data.holder_name.strip()
+        acc.holder_cpf_hash=cpf_digest(cpf)
+        acc.pix_key=data.pix_key.strip()
+        acc.verified=1
+    audit(db,user.id,"PAYMENT_ACCOUNT_UPDATED","pix_key configured")
+    db.commit()
+    return {"ok":True,"verified":True}
+
+@app.post("/api/payments/pix/charge")
+def create_pix_charge(data: PixChargeIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if payment_mode() != "sandbox":
+        raise HTTPException(503, "Modo live não habilitado nesta versão")
+    acc=_payment_account(db,user.id)
+    if not acc or not acc.verified:
+        raise HTTPException(400, "Cadastre e valide sua conta de pagamento primeiro")
+    cents=int(round(data.amount*100))
+    txid="MX"+secrets.token_hex(12).upper()
+    # Payload fictício para teste de UI/fluxo; não envia dinheiro.
+    payload=f"000201-MATRIXBET-SANDBOX-TXID-{txid}-AMOUNT-{cents}"
+    ch=PixCharge(
+        user_id=user.id,txid=txid,amount_cents=cents,status="pending",
+        pix_copy_paste=payload,created_at=now_iso()
+    )
+    db.add(ch); db.flush()
+    audit(db,user.id,"PIX_SANDBOX_CREATED",f"txid={txid};cents={cents}")
+    db.commit()
+    return {"ok":True,"txid":txid,"amount_cents":cents,"pix_copy_paste":payload,"status":"pending"}
+
+@app.post("/api/payments/pix/webhook-sandbox")
+def pix_webhook_sandbox(data: PixWebhookSandboxIn, db: Session = Depends(get_db)):
+    if payment_mode() != "sandbox":
+        raise HTTPException(404, "Webhook sandbox desativado")
+    ch=db.scalar(select(PixCharge).where(PixCharge.txid==data.txid))
+    if not ch:
+        raise HTTPException(404,"Cobrança não encontrada")
+    if ch.status!="pending":
+        return {"ok":True,"status":ch.status}
+    user=db.get(User,ch.user_id)
+    payer=only_digits(data.payer_cpf)
+    if not valid_cpf(payer) or not user or cpf_digest(payer)!=user.cpf_hash:
+        ch.status="failed"
+        audit(db,ch.user_id,"PIX_SANDBOX_REJECTED","payer CPF mismatch")
+        db.commit()
+        raise HTTPException(400,"Pagador não corresponde ao CPF cadastrado")
+    if data.status=="paid":
+        ch.status="paid"; ch.paid_at=now_iso()
+        user.demo_balance_cents += ch.amount_cents
+        audit(db,user.id,"PIX_SANDBOX_PAID",f"txid={ch.txid};cents={ch.amount_cents}")
+    else:
+        ch.status="failed"
+        audit(db,user.id,"PIX_SANDBOX_FAILED",f"txid={ch.txid}")
+    db.commit()
+    return {"ok":True,"status":ch.status,"balance_cents":user.demo_balance_cents}
+
+@app.get("/api/payments/pix/charges")
+def my_pix_charges(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows=db.scalars(select(PixCharge).where(PixCharge.user_id==user.id).order_by(PixCharge.id.desc()).limit(100)).all()
+    return {"items":[{
+        "id":x.id,"txid":x.txid,"amount_cents":x.amount_cents,"status":x.status,
+        "created_at":x.created_at,"paid_at":x.paid_at
+    } for x in rows]}
+
+# ---------- Wallet ----------
+@app.get("/api/wallet")
+def wallet(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    txs = db.scalars(
+        select(WalletTransaction)
+        .where(WalletTransaction.user_id == user.id)
+        .order_by(WalletTransaction.id.desc())
+        .limit(100)
+    ).all()
+    return {
+        "balance_cents": user.demo_balance_cents,
+        "transactions": [{
+            "id": t.id, "kind": t.kind, "amount_cents": t.amount_cents,
+            "status": t.status, "pix_key": t.pix_key or "",
+            "receipt_note": t.receipt_note or "", "admin_note": t.admin_note or "",
+            "created_at": t.created_at, "decided_at": t.decided_at
+        } for t in txs]
+    }
+
+@app.post("/api/wallet/deposit")
+def request_deposit(data: DepositRequestIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cents = int(round(data.amount * 100))
+    tx = WalletTransaction(
+        user_id=user.id, kind="deposit", amount_cents=cents, status="pending",
+        receipt_note=data.receipt_note.strip(), created_at=now_iso()
+    )
+    db.add(tx); db.flush()
+    audit(db, user.id, "DEPOSIT_REQUESTED", f"tx={tx.id}; cents={cents}")
+    db.commit()
+    return {"ok": True, "id": tx.id, "message": "Solicitação de depósito enviada para análise."}
+
+@app.post("/api/wallet/withdraw")
+def request_withdrawal(data: WithdrawalRequestIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cents = int(round(data.amount * 100))
+    if cents > user.demo_balance_cents:
+        raise HTTPException(400, "Saldo insuficiente")
+    pending = db.scalars(select(WalletTransaction).where(
+        WalletTransaction.user_id == user.id,
+        WalletTransaction.kind == "withdrawal",
+        WalletTransaction.status == "pending"
+    )).all()
+    reserved = sum(t.amount_cents for t in pending)
+    if cents > user.demo_balance_cents - reserved:
+        raise HTTPException(400, "Saldo disponível insuficiente por causa de saque pendente")
+    tx = WalletTransaction(
+        user_id=user.id, kind="withdrawal", amount_cents=cents, status="pending",
+        pix_key=data.pix_key.strip(), created_at=now_iso()
+    )
+    db.add(tx); db.flush()
+    audit(db, user.id, "WITHDRAWAL_REQUESTED", f"tx={tx.id}; cents={cents}")
+    db.commit()
+    return {"ok": True, "id": tx.id, "message": "Solicitação de saque enviada para análise."}
+
+@app.get("/api/admin/wallet")
+def admin_wallet(status: str = "", kind: str = "", admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    q = select(WalletTransaction).order_by(WalletTransaction.id.desc())
+    if status: q = q.where(WalletTransaction.status == status)
+    if kind: q = q.where(WalletTransaction.kind == kind)
+    txs = db.scalars(q.limit(300)).all()
+    result=[]
+    for t in txs:
+        u=db.get(User,t.user_id)
+        result.append({
+            "id":t.id,"user_id":t.user_id,"user_name":u.name if u else "—",
+            "user_email":u.email if u else "—","kind":t.kind,
+            "amount_cents":t.amount_cents,"status":t.status,"pix_key":t.pix_key or "",
+            "receipt_note":t.receipt_note or "","admin_note":t.admin_note or "",
+            "created_at":t.created_at,"decided_at":t.decided_at
+        })
+    return {"items":result}
+
+@app.post("/api/admin/wallet/{tx_id}/decision")
+def admin_wallet_decision(tx_id: int, data: WalletDecisionIn, admin: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    tx=db.get(WalletTransaction,tx_id)
+    if not tx: raise HTTPException(404,"Solicitação não encontrada")
+    if tx.status != "pending": raise HTTPException(409,"Solicitação já foi analisada")
+    user=db.get(User,tx.user_id)
+    if not user: raise HTTPException(404,"Usuário não encontrado")
+    if data.action == "approve":
+        if tx.kind == "deposit":
+            user.demo_balance_cents += tx.amount_cents
+        elif tx.kind == "withdrawal":
+            if user.demo_balance_cents < tx.amount_cents:
+                raise HTTPException(400,"Saldo do usuário ficou insuficiente")
+            user.demo_balance_cents -= tx.amount_cents
+        tx.status="approved"
+    else:
+        tx.status="rejected"
+    tx.admin_note=data.admin_note.strip()
+    tx.decided_at=now_iso()
+    audit(db, admin.id, "WALLET_DECISION", f"tx={tx.id}; action={data.action}; user={user.id}")
+    db.commit()
+    return {"ok":True,"status":tx.status,"balance_cents":user.demo_balance_cents}
 
 # ---------- Account & Support ----------
 
@@ -1005,7 +1245,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "5.9.6",
+        "version": "6.1.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1023,7 +1263,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "5.9.6",
+        "version": "6.1.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

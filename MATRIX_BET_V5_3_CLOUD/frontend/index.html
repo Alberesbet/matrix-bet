@@ -263,6 +263,40 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   </div>
 </div>
 
+
+<div id="walletModal" class="mxModal hidden">
+  <div class="mxModalCard">
+    <button class="mxClose" data-close-wallet>×</button>
+    <h3>Carteira</h3>
+    <div class="userCard"><div><small>SALDO</small><b class="bal" id="walletBalance">R$ 0,00</b></div></div>
+    <div id="paymentAccountBox">
+        <h4>Conta de pagamento</h4>
+        <input id="payHolderName" placeholder="Nome do titular">
+        <input id="payCpf" inputmode="numeric" placeholder="CPF do titular">
+        <input id="payPixKey" placeholder="Chave PIX">
+        <button class="btn ghost" id="savePaymentAccount">SALVAR CONTA</button>
+        </div>
+        <h4>PIX automático • SANDBOX</h4>
+        <input id="pixAutoAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+        <button class="btn primary" id="createPixCharge">GERAR PIX DE TESTE</button>
+        <textarea id="pixPayload" readonly placeholder="PIX Copia e Cola de teste"></textarea>
+        <small>Modo sandbox: não movimenta dinheiro real.</small>
+        <hr>
+        <h4>Solicitar depósito manual</h4>
+    <input id="depositAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+    <textarea id="depositReceipt" placeholder="Referência/comprovante (opcional)"></textarea>
+    <button class="btn primary" id="requestDeposit">ENVIAR DEPÓSITO</button>
+    <hr>
+    <h4>Solicitar saque</h4>
+    <input id="withdrawAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+    <input id="withdrawPix" placeholder="Chave PIX">
+    <button class="btn ghost" id="requestWithdraw">SOLICITAR SAQUE</button>
+    <hr>
+    <h4>Extrato</h4>
+    <div id="walletHistory" style="display:grid;gap:8px"></div>
+  </div>
+</div>
+
 <div id="profileModal" class="mxModal hidden">
   <div class="mxModalCard">
     <button class="mxClose" data-close-profile>×</button>
@@ -475,6 +509,64 @@ $('#profileChangePwd').onclick=async()=>{
     })});
     alert('Senha alterada.');
     $('#profileCurrentPwd').value='';$('#profileNewPwd').value='';
+  }catch(e){alert(e.message)}
+};
+
+
+function brl(c){return (c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+async function openWallet(){
+  loadPaymentAccount();
+  try{
+    let w=await api('/api/wallet');
+    $('#walletBalance').textContent=brl(w.balance_cents);
+    $('#walletHistory').innerHTML=w.transactions.length?w.transactions.map(t=>{
+      let title=t.kind==='deposit'?'Depósito':'Saque';
+      let st=t.status==='pending'?'Pendente':t.status==='approved'?'Aprovado':'Rejeitado';
+      return `<div class="userCard"><div><b>${title} • ${brl(t.amount_cents)}</b><small>${new Date(t.created_at).toLocaleString('pt-BR')}</small></div><div><b>${st}</b><small>${t.admin_note||''}</small></div></div>`
+    }).join(''):'<small>Nenhuma movimentação ainda.</small>';
+    $('#walletModal').classList.remove('hidden');
+  }catch(e){alert(e.message)}
+}
+if($('[data-close-wallet]')) $('[data-close-wallet]').onclick=()=>$('#walletModal').classList.add('hidden');
+if($('#requestDeposit')) $('#requestDeposit').onclick=async()=>{
+  try{
+    let j=await api('/api/wallet/deposit',{method:'POST',body:JSON.stringify({amount:Number($('#depositAmount').value),receipt_note:$('#depositReceipt').value})});
+    alert(j.message); openWallet();
+  }catch(e){alert(e.message)}
+};
+if($('#requestWithdraw')) $('#requestWithdraw').onclick=async()=>{
+  try{
+    let j=await api('/api/wallet/withdraw',{method:'POST',body:JSON.stringify({amount:Number($('#withdrawAmount').value),pix_key:$('#withdrawPix').value})});
+    alert(j.message); openWallet();
+  }catch(e){alert(e.message)}
+};
+document.querySelectorAll('[data-page="wallet"]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();openWallet()}));
+
+
+async function loadPaymentAccount(){
+  try{
+    let a=await api('/api/payments/account');
+    if(a.configured){
+      $('#payHolderName').value=a.holder_name||'';
+      $('#payPixKey').value=a.pix_key||'';
+    }
+  }catch{}
+}
+if($('#savePaymentAccount')) $('#savePaymentAccount').onclick=async()=>{
+  try{
+    let j=await api('/api/payments/account',{method:'PUT',body:JSON.stringify({
+      holder_name:$('#payHolderName').value,
+      cpf:$('#payCpf').value,
+      pix_key:$('#payPixKey').value
+    })});
+    alert('Conta de pagamento cadastrada.');
+  }catch(e){alert(e.message)}
+};
+if($('#createPixCharge')) $('#createPixCharge').onclick=async()=>{
+  try{
+    let j=await api('/api/payments/pix/charge',{method:'POST',body:JSON.stringify({amount:Number($('#pixAutoAmount').value)})});
+    $('#pixPayload').value=j.pix_copy_paste;
+    alert('PIX de teste gerado. Ele não movimenta dinheiro real.');
   }catch(e){alert(e.message)}
 };
 
