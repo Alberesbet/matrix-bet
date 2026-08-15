@@ -174,7 +174,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.1 PIX SANDBOX API", version="6.1.0")
+app = FastAPI(title="MATRIX BET V6.2 SPORTS DEMO API", version="6.2.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -402,15 +402,24 @@ class BetIn(BaseModel):
     selections: list[SelectionIn] = Field(min_length=1, max_length=20)
 
 PREGAME = [
-    {"id":"br-a-1","league":"Brasileirão Série A","time":"19:00","home":"Palmeiras","away":"Flamengo","odds":{"1":2.10,"X":3.25,"2":3.40}},
-    {"id":"br-a-2","league":"Brasileirão Série A","time":"21:30","home":"Atlético MG","away":"Corinthians","odds":{"1":2.35,"X":3.10,"2":3.05}},
-    {"id":"br-b-1","league":"Brasileirão Série B","time":"20:00","home":"Goiás","away":"Criciúma","odds":{"1":2.05,"X":3.15,"2":3.60}},
-    {"id":"lib-1","league":"Libertadores","time":"21:30","home":"River Plate","away":"Flamengo","odds":{"1":2.10,"X":3.30,"2":3.40}},
-    {"id":"ucl-1","league":"Champions League","time":"17:00","home":"Real Madrid","away":"Manchester City","odds":{"1":2.15,"X":3.40,"2":3.10}},
-    {"id":"epl-1","league":"Premier League","time":"16:00","home":"Chelsea","away":"Arsenal","odds":{"1":2.35,"X":3.50,"2":2.90}},
-    {"id":"laliga-1","league":"LaLiga","time":"16:30","home":"Barcelona","away":"Sevilla","odds":{"1":1.62,"X":4.10,"2":5.20}},
-    {"id":"seriea-1","league":"Serie A","time":"15:45","home":"Inter","away":"Juventus","odds":{"1":2.05,"X":3.20,"2":3.65}},
-    {"id":"bund-1","league":"Bundesliga","time":"13:30","home":"Bayern München","away":"Dortmund","odds":{"1":1.65,"X":4.15,"2":4.60}},
+    {"id":"br-a-1","sport":"Futebol","league":"Brasileirão Série A","time":"16:00","home":"Palmeiras","away":"Flamengo","odds":{"1":2.10,"X":3.25,"2":3.40}},
+    {"id":"br-a-2","sport":"Futebol","league":"Brasileirão Série A","time":"18:30","home":"Atlético-MG","away":"Corinthians","odds":{"1":2.35,"X":3.10,"2":3.05}},
+    {"id":"br-a-3","sport":"Futebol","league":"Brasileirão Série A","time":"20:00","home":"São Paulo","away":"Grêmio","odds":{"1":1.98,"X":3.35,"2":3.85}},
+    {"id":"br-b-1","sport":"Futebol","league":"Brasileirão Série B","time":"19:00","home":"Goiás","away":"Criciúma","odds":{"1":2.05,"X":3.15,"2":3.60}},
+    {"id":"lib-1","sport":"Futebol","league":"Libertadores","time":"21:30","home":"River Plate","away":"Flamengo","odds":{"1":2.10,"X":3.30,"2":3.40}},
+    {"id":"lib-2","sport":"Futebol","league":"Libertadores","time":"21:30","home":"Boca Juniors","away":"Palmeiras","odds":{"1":2.45,"X":3.10,"2":2.95}},
+    {"id":"ucl-1","sport":"Futebol","league":"Champions League","time":"17:00","home":"Real Madrid","away":"Manchester City","odds":{"1":2.15,"X":3.40,"2":3.10}},
+    {"id":"ucl-2","sport":"Futebol","league":"Champions League","time":"17:00","home":"Bayern München","away":"Paris SG","odds":{"1":2.00,"X":3.65,"2":3.45}},
+    {"id":"epl-1","sport":"Futebol","league":"Premier League","time":"16:00","home":"Chelsea","away":"Arsenal","odds":{"1":2.35,"X":3.50,"2":2.90}},
+    {"id":"epl-2","sport":"Futebol","league":"Premier League","time":"13:30","home":"Liverpool","away":"Tottenham","odds":{"1":1.70,"X":4.10,"2":4.30}},
+    {"id":"laliga-1","sport":"Futebol","league":"LaLiga","time":"16:30","home":"Barcelona","away":"Sevilla","odds":{"1":1.62,"X":4.10,"2":5.20}},
+    {"id":"laliga-2","sport":"Futebol","league":"LaLiga","time":"14:00","home":"Atlético de Madrid","away":"Valencia","odds":{"1":1.78,"X":3.60,"2":4.75}},
+    {"id":"ita-1","sport":"Futebol","league":"Serie A","time":"15:45","home":"Inter","away":"Juventus","odds":{"1":2.05,"X":3.20,"2":3.65}},
+    {"id":"bund-1","sport":"Futebol","league":"Bundesliga","time":"13:30","home":"Bayern München","away":"Dortmund","odds":{"1":1.65,"X":4.15,"2":4.60}},
+    {"id":"fra-1","sport":"Futebol","league":"Ligue 1","time":"16:00","home":"Paris SG","away":"Marseille","odds":{"1":1.55,"X":4.30,"2":5.50}},
+    {"id":"por-1","sport":"Futebol","league":"Primeira Liga","time":"17:15","home":"Benfica","away":"Porto","odds":{"1":2.20,"X":3.25,"2":3.15}},
+    {"id":"arg-1","sport":"Futebol","league":"Liga Argentina","time":"22:00","home":"Racing","away":"Independiente","odds":{"1":2.30,"X":3.00,"2":3.30}},
+    {"id":"mls-1","sport":"Futebol","league":"MLS","time":"23:30","home":"Inter Miami","away":"LA Galaxy","odds":{"1":1.88,"X":3.80,"2":3.70}},
 ]
 EVENT_LOOKUP = {e["id"]: e for e in PREGAME}
 
@@ -455,7 +464,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.1.0",
+        "version": "6.2.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -1229,6 +1238,25 @@ def admin_reply_ticket(
     return {"ok": True}
 
 
+
+CASINO_DEMO_CATEGORIES = [
+    {"id":"slots","name":"Slots","icon":"🎰"},
+    {"id":"live","name":"Cassino ao Vivo","icon":"🎥"},
+    {"id":"roulette","name":"Roleta","icon":"🎡"},
+    {"id":"blackjack","name":"Blackjack","icon":"🃏"},
+    {"id":"crash","name":"Crash","icon":"🚀"},
+]
+
+@app.get("/api/casino/catalog")
+def casino_catalog(user: User = Depends(get_current_user)):
+    return {
+        "mode":"provider-ready",
+        "connected":False,
+        "categories":CASINO_DEMO_CATEGORIES,
+        "message":"Aguardando credenciais do agregador B2B."
+    }
+
+
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 @app.get("/admin-service-worker.js")
@@ -1245,7 +1273,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.1.0",
+        "version": "6.2.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1263,7 +1291,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.1.0",
+        "version": "6.2.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

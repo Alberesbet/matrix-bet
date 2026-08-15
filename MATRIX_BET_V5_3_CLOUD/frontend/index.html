@@ -192,7 +192,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
     <button data-page="sports">FUTEBOL</button>
     <button data-page="live">AO VIVO</button>
     <button data-page="bets">MINHAS APOSTAS</button>
-    <button data-page="wallet">CARTEIRA</button>
+    <button data-page="wallet">CARTEIRA</button><button data-page="casino">CASSINO</button>
   </nav>
   <div class="spacer"></div>
   <div class="userBox">
@@ -207,7 +207,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
     <button data-page="home" class="on">⌂ <span>Início</span></button>
     <button data-page="live">◉ <span>Ao Vivo</span><em>136</em></button>
     <button data-page="bets">▤ <span>Minhas Apostas</span></button>
-    <button data-page="wallet">R$ <span>Carteira</span></button>
+    <button data-page="wallet">R$ <span>Carteira</span></button><button data-page="casino">🎰 <span>Cassino</span></button>
       <button id="sideProfile">👤 <span>Perfil</span></button>
     <div class="sideTitle">COMPETIÇÕES</div>
     <button data-league="Brasileirão Série A">🇧🇷 <span>Brasileirão Série A</span></button>
@@ -228,7 +228,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   <button data-page="sports"><span class="ico">⚽</span><b>Futebol</b></button>
   <button data-page="live"><span class="ico">◉</span><b>Ao Vivo</b><em class="badge">136</em></button>
   <button data-page="bets"><span class="ico">▤</span><b>Apostas</b></button>
-  <button data-page="wallet"><span class="ico">R$</span><b>Carteira</b></button>
+  <button data-page="wallet"><span class="ico">R$</span><b>Carteira</b></button><button data-page="casino"><span class="ico">🎰</span><b>Cassino</b></button>
 </nav>
 </section>
 
@@ -370,7 +370,7 @@ function selected(id,pick){return slip.some(x=>x.event_id===id&&x.pick===pick)}
 function addSelection(e,pick){let i=slip.findIndex(x=>x.event_id===e.id),o={event_id:e.id,market:'Resultado Final',pick,odd:+e.odds[pick],home:e.home,away:e.away,league:e.league};if(i>=0&&slip[i].pick===pick)slip.splice(i,1);else{if(i>=0)slip.splice(i,1);slip.push(o)}render()}
 function cards(){return `<div class=heroRow><div class=hero><small>BEM-VINDO, ${me.name}</small><h2>SEU SALDO <span>${money(me.demo_balance_cents)}</span></h2><small>Conta validada pelo backend.</small></div><div class=hero><small>FUTEBOL</small><h2>GRANDES <span>LIGAS</span></h2><small>Brasil e competições internacionais.</small></div><div class=hero><small>AO VIVO</small><h2><span>${liveEvents.length}</span> EVENTOS</h2><small>Eventos servidos pela API.</small></div></div>`}
 function book(list){let groups={};list.forEach(e=>(groups[e.league]??=[]).push(e));return `<div class=panel><div class=head>FUTEBOL <span>${list.length} eventos</span></div><div class=bookHead><div>Jogo</div><div>1</div><div>X</div><div>2</div><div>+</div></div>${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>`<div class=event><div class=info><small>${e.time}</small><b>${e.home}</b><b>${e.away}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-event="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}<div class=more>+128</div></div>`).join('')}`).join('')}</div>`}
-function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
+function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga','Ligue 1','Primeira Liga','Liga Argentina','MLS'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
 function sports(){let list=events.filter(e=>league==='Todos'||e.league===league);return cards()+`<input class=search id=search placeholder="Buscar futebol..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(list)}`}
 function livePage(){let groups={};liveEvents.slice(0,35).forEach(e=>(groups[e.league]??=[]).push(e));return cards()+`<div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS</div>${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>`<div class=liveRow><div class=info><small>${e.time} • AO VIVO</small><b>${e.home}</b><b>${e.away} · ${e.score}</b></div>${['1','X','2'].map(p=>`<button class="odd ${selected(e.id,p)?'sel':''}" data-liveevent="${e.id}" data-pick="${p}">${Number(e.odds[p]).toFixed(2)}</button>`).join('')}</div>`).join('')}`).join('')}</div>`}
 async function betsPage(){let j=await api('/api/bets');$('#main').innerHTML=cards()+`<div class=panel><div class=head>MINHAS APOSTAS <span>${j.bets.length}</span></div><div style="padding:12px">${j.bets.length?j.bets.map(b=>`<div class=betcard><b>#${b.id} • ${money(b.stake_cents)}</b><p>Odd total ${b.total_odd.toFixed(2)}</p><small>${b.status} • ${new Date(b.created_at).toLocaleString('pt-BR')}</small></div>`).join(''):'<div class=empty>Nenhuma aposta demo registrada.</div>'}</div></div>`;bindDynamic()}
@@ -408,7 +408,16 @@ function bindMobileCouponControls(){
   };
 }
 
-async function render(){if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+
+async function casinoPage(){
+  let j=await api('/api/casino/catalog');
+  return cards()+`<div class=panel><div class=head>CASSINO <span>${j.connected?'CONECTADO':'AGUARDANDO PROVEDOR'}</span></div>
+  <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px">
+    ${j.categories.map(c=>`<div class=wallet style="min-height:125px"><div style="font-size:34px">${c.icon}</div><b>${c.name}</b><small style="display:block;color:#8fa0a4;margin-top:6px">API B2B preparada</small></div>`).join('')}
+  </div><div style="padding:0 14px 15px;color:#97a4a9">${j.message}</div></div>`;
+}
+
+async function render(){if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
 function bindDynamic(){
  $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
  $$('[data-market]').forEach(b=>b.onclick=()=>{market=b.dataset.market;render()});
