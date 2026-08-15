@@ -58,6 +58,7 @@ class User(Base):
     cpf_last4: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
     is_admin: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_blocked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    avatar_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     salt: Mapped[str] = mapped_column(String(64), nullable=False)
     demo_balance_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=25000)
@@ -125,17 +126,20 @@ def ensure_user_columns():
                 conn.execute(text("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"))
             if "is_blocked" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0"))
+            if "avatar_data" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN avatar_data TEXT"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_cpf_hash ON users(cpf_hash)"))
         else:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf_hash VARCHAR(64)"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf_last4 VARCHAR(4)"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin INTEGER NOT NULL DEFAULT 0"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data TEXT"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_cpf_hash ON users(cpf_hash)"))
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.7 POSTGRES + ADMIN API", version="5.7.0")
+app = FastAPI(title="MATRIX BET V5.8 PERFIL USUARIO API", version="5.8.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -323,6 +327,9 @@ class ChangeEmailIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     new_email: EmailStr
 
+class AvatarIn(BaseModel):
+    avatar_data: str = Field(max_length=500000)
+
 class ResetRequestIn(BaseModel):
     email: EmailStr
 
@@ -408,7 +415,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.7.0",
+        "version": "5.8.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -509,7 +516,13 @@ def logout(
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user)):
     return {
-        "id":user.id,"name":user.name,"email":user.email,
+        "id":user.id,
+        "name":user.name,
+        "email":user.email,
+        "cpf_masked": ("***.***.***-" + user.cpf_last4[-2:]) if user.cpf_last4 else "—",
+        "avatar_data": user.avatar_data or "",
+        "created_at": user.created_at,
+        "is_blocked": bool(user.is_blocked),
         "demo_balance_cents":user.demo_balance_cents
     }
 
@@ -605,6 +618,48 @@ def add_demo_balance(
 
 
 # ---------- Account & Support ----------
+
+@app.get("/api/account/profile")
+def account_profile(user: User = Depends(get_current_user)):
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "cpf_masked": ("***.***.***-" + user.cpf_last4[-2:]) if user.cpf_last4 else "—",
+        "avatar_data": user.avatar_data or "",
+        "created_at": user.created_at,
+        "is_blocked": bool(user.is_blocked),
+        "demo_balance_cents": user.demo_balance_cents,
+    }
+
+@app.put("/api/account/avatar")
+def update_avatar(
+    data: AvatarIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    value = data.avatar_data.strip()
+    if value and not value.startswith("data:image/"):
+        raise HTTPException(400, "Formato de imagem inválido")
+    if len(value) > 500000:
+        raise HTTPException(400, "Imagem muito grande")
+    user_db = db.get(User, user.id)
+    user_db.avatar_data = value or None
+    audit(db, user.id, "AVATAR_UPDATED", "set" if value else "removed")
+    db.commit()
+    return {"ok": True, "avatar_data": user_db.avatar_data or ""}
+
+@app.delete("/api/account/avatar")
+def remove_avatar(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user_db = db.get(User, user.id)
+    user_db.avatar_data = None
+    audit(db, user.id, "AVATAR_REMOVED", "")
+    db.commit()
+    return {"ok": True}
+
 @app.post("/api/account/change-password")
 def change_password(
     data: ChangePasswordIn,
