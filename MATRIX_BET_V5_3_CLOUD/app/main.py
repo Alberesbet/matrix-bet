@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.8 PERFIL USUARIO API", version="5.8.1")
+app = FastAPI(title="MATRIX BET V5.9.1 ADMIN ACCESS FIX API", version="5.9.1")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -415,7 +415,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.8.1",
+        "version": "5.9.1",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -944,8 +944,23 @@ def admin_reply_ticket(
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 @app.get("/admin")
+@app.get("/admin/")
+@app.get("/painel-adm")
+@app.get("/painel-adm/")
+@app.get("/admin-login")
 def admin_page():
-    return FileResponse(FRONTEND / "admin.html")
+    response = FileResponse(FRONTEND / "admin.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+@app.get("/api/admin/status")
+def admin_status(admin: User = Depends(get_admin_user)):
+    return {
+        "ok": True,
+        "version": "5.9.1",
+        "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
+    }
 
 @app.get("/")
 def index():

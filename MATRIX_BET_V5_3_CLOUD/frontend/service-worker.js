@@ -1,4 +1,4 @@
-const CACHE = 'matrix-bet-v581-shell';
+const CACHE = 'matrix-bet-v591-shell';
 const SHELL = ['/', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
 
 self.addEventListener('install', event => {
@@ -18,8 +18,15 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Never cache API/auth responses.
-  if (url.pathname.startsWith('/api/')) return;
+  // Never intercept API/auth or administrator pages.
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname === '/admin' ||
+    url.pathname === '/admin/' ||
+    url.pathname === '/painel-adm' ||
+    url.pathname === '/painel-adm/' ||
+    url.pathname === '/admin-login'
+  ) return;
 
   event.respondWith(
     fetch(req).then(resp => {
