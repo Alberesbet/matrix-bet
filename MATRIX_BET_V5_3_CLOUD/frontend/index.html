@@ -153,6 +153,19 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 
+
+<style id="v63-dashboard">
+.v63dash{display:grid;gap:12px;margin:10px 0 18px}.v63stats{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px}
+.v63card,.v63section{background:linear-gradient(145deg,#10191d,#0b1215);border:1px solid #26363c;border-radius:10px;padding:14px}
+.v63card small{color:#a5b0b4;display:block}.v63card strong{font-size:25px;color:#35e59a;display:block;margin:5px 0}
+.v63title{font-weight:900;margin-bottom:10px;display:flex;justify-content:space-between}.v63live{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:8px}
+.v63match{border:1px solid #29383e;border-radius:8px;padding:10px;background:#111a1e}.v63match b{display:block;margin:5px 0}
+.v63odds{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:8px}.v63odds span{background:#253039;padding:7px;text-align:center;border-radius:5px;color:#ffe75a;font-weight:800}
+.v63features{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.v63feature{text-align:center;min-height:90px;padding:14px 8px;border:1px solid #294039;border-radius:8px;background:#101a17}
+.v63feature strong{display:block;margin-top:8px}.v63recent{width:100%;border-collapse:collapse}.v63recent td,.v63recent th{padding:9px;border-bottom:1px solid #26343a;text-align:left;font-size:13px}
+@media(max-width:900px){.v63stats{grid-template-columns:repeat(2,1fr)}.v63live{grid-template-columns:1fr 1fr}.v63features{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.v63live{grid-template-columns:1fr}.v63features{grid-template-columns:1fr 1fr}.v63recent{font-size:11px}}
+</style>
 </head>
 <body>
 
@@ -417,7 +430,32 @@ async function casinoPage(){
   </div><div style="padding:0 14px 15px;color:#97a4a9">${j.message}</div></div>`;
 }
 
-async function render(){if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+
+function v63Dashboard(){
+ const games=[
+ ['Brasileirão Série A','Palmeiras','Flamengo','1.35','3.40','9.25'],
+ ['Brasileirão Série A','Atlético-MG','Corinthians','2.10','2.90','3.55'],
+ ['Libertadores','Boca Juniors','River Plate','3.10','2.80','2.40'],
+ ['Premier League','Arsenal','Chelsea','2.05','3.20','3.60']
+ ];
+ return `<div class="v63dash">
+ <div class="v63stats">
+  <div class="v63card"><small>SEU SALDO</small><strong>R$ ${Number(me?.balance||0).toFixed(2).replace('.',',')}</strong><small>Conta demo</small></div>
+  <div class="v63card"><small>AO VIVO AGORA</small><strong>136</strong><small>Eventos em andamento</small></div>
+  <div class="v63card"><small>GRANDES LIGAS</small><strong>12</strong><small>Campeonatos disponíveis</small></div>
+  <div class="v63card"><small>MINHAS APOSTAS</small><strong>2</strong><small>Acompanhe seus bilhetes</small></div>
+ </div>
+ <div class="v63section"><div class="v63title">🔴 AO VIVO AGORA <span>Ver todos (136)</span></div><div class="v63live">
+ ${games.map((g,i)=>`<div class="v63match"><small>${g[0]} · ${18+i*13}' AO VIVO</small><b>${g[1]}</b><b>${g[2]}</b><div class="v63odds"><span>${g[3]}</span><span>${g[4]}</span><span>${g[5]}</span></div></div>`).join('')}
+ </div></div>
+ <div class="v63section"><div class="v63title">⭐ DESTAQUES DO DIA</div><div class="v63features">
+ ${['Brasileirão Série A','Libertadores','Champions League','Premier League','LaLiga'].map(x=>`<div class="v63feature">🏆<strong>${x}</strong><small>Ver mercados</small></div>`).join('')}
+ </div></div>
+ <div class="v63section"><div class="v63title">📋 APOSTAS RECENTES</div><table class="v63recent"><tr><th>Evento</th><th>Seleção</th><th>Odd</th><th>Status</th></tr><tr><td>Palmeiras x Flamengo</td><td>Palmeiras</td><td>1.35</td><td>ABERTA</td></tr><tr><td>Atlético-MG x Corinthians</td><td>1X</td><td>1.50</td><td>ABERTA</td></tr></table></div>
+ </div>`;
+}
+
+async function render(){if(page==='home'&&me){$('#main').innerHTML=v63Dashboard();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
 function bindDynamic(){
  $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
  $$('[data-market]').forEach(b=>b.onclick=()=>{market=b.dataset.market;render()});
