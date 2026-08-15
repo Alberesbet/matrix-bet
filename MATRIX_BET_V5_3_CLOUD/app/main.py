@@ -15,7 +15,7 @@ from typing import Optional
 from email.message import EmailMessage
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.9.3 ADMIN SETUP FIX API", version="5.9.3")
+app = FastAPI(title="MATRIX BET V5.9.5 ADMIN FIXED LINK API", version="5.9.5")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -420,7 +420,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.9.3",
+        "version": "5.9.5",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -997,16 +997,15 @@ app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 @app.get("/painel-adm/")
 @app.get("/admin-login")
 def admin_page():
-    response = FileResponse(FRONTEND / "admin.html")
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    return response
+    # Endereço fixo do administrador.
+    # Redireciona para o arquivo administrativo que já foi validado no navegador.
+    return RedirectResponse(url="/static/admin.html", status_code=307)
 
 @app.get("/api/admin/status")
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "5.9.3",
+        "version": "5.9.5",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 
