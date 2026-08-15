@@ -2,7 +2,7 @@
   "name": "MATRIX BET",
   "short_name": "MATRIX BET",
   "description": "MATRIX BET V5.5 - plataforma web instalável",
-  "start_url": "/?pwa=user&v=6.6.0",
+  "start_url": "/?app=user",
   "scope": "/",
   "display": "standalone",
   "background_color": "#06120F",

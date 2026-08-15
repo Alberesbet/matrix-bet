@@ -174,7 +174,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.6 PWA DUAL UPDATE API", version="6.6.0")
+app = FastAPI(title="MATRIX BET V6.6.1 PWA SEGURO API", version="6.6.1")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -540,7 +540,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.6.0",
+        "version": "6.6.1",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -1344,18 +1344,6 @@ def casino_catalog(user: User = Depends(get_current_user)):
 
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
-@app.get("/service-worker.js")
-def user_service_worker():
-    response = FileResponse(
-        FRONTEND / "service-worker.js",
-        media_type="application/javascript"
-    )
-    response.headers["Service-Worker-Allowed"] = "/"
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
 @app.get("/admin-service-worker.js")
 def admin_service_worker():
     response = FileResponse(
@@ -1363,26 +1351,14 @@ def admin_service_worker():
         media_type="application/javascript"
     )
     response.headers["Service-Worker-Allowed"] = "/"
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    response.headers["Cache-Control"] = "no-cache"
     return response
-
-@app.get("/api/app-links")
-def app_links():
-    host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
-    base = f"https://{host}" if host else ""
-    return {
-        "version": "6.6.0",
-        "user": f"{base}/" if base else "/",
-        "admin": f"{base}/painel-adm" if base else "/painel-adm"
-    }
 
 @app.get("/api/app-mode")
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.6.0",
+        "version": "6.6.1",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1404,7 +1380,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.6.0",
+        "version": "6.6.1",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

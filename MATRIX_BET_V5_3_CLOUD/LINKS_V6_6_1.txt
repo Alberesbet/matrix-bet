@@ -1,0 +1,11 @@
+MATRIX BET V6.6.1
+
+Usuário:
+https://matrix-bet.onrender.com/
+
+Administrador:
+https://matrix-bet.onrender.com/painel-adm
+
+Esta versão foi refeita sobre a V6.5 estável.
+A atualização PWA foi simplificada para evitar conflito entre usuário e ADM.
+Também foi criado /health retornando HTTP 200.

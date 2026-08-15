@@ -769,31 +769,5 @@ if('serviceWorker' in navigator){
 }
 
 </script>
-
-<script id="v66-user-update">
-(async()=>{
-  if(!('serviceWorker' in navigator)) return;
-  try{
-    const reg=await navigator.serviceWorker.register('/service-worker.js',{scope:'/'});
-    await reg.update();
-    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-    reg.addEventListener('updatefound',()=>{
-      const nw=reg.installing;
-      if(!nw) return;
-      nw.addEventListener('statechange',()=>{
-        if(nw.state==='installed' && navigator.serviceWorker.controller){
-          nw.postMessage({type:'SKIP_WAITING'});
-        }
-      });
-    });
-    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mx66_reloaded')){
-        sessionStorage.setItem('mx66_reloaded','1');
-        location.reload();
-      }
-    });
-  }catch(e){console.warn('PWA user update',e)}
-})();
-</script>
 </body>
 </html>
