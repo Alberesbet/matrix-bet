@@ -139,7 +139,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V5.9.1 ADMIN ACCESS FIX API", version="5.9.1")
+app = FastAPI(title="MATRIX BET V5.9.2 ADMIN SETUP API", version="5.9.2")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -345,6 +345,11 @@ class TicketReplyIn(BaseModel):
     reply: str = Field(min_length=1, max_length=3000)
     status: str = Field(default="IN_PROGRESS", max_length=24)
 
+class AdminSetupIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
 class UserAdminUpdateIn(BaseModel):
     is_blocked: bool
 
@@ -415,7 +420,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "5.9.1",
+        "version": "5.9.2",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -794,6 +799,42 @@ def my_tickets(
     } for t in rows]}
 
 # ---------- Admin ----------
+
+@app.get("/api/admin/setup-status")
+def admin_setup_status(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    count = db.scalar(select(func.count(User.id)).where(User.is_admin == 1)) or 0
+    return {"setup_available": count == 0, "admin_count": int(count)}
+
+@app.post("/api/admin/setup")
+def admin_setup(data: AdminSetupIn, db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    count = db.scalar(select(func.count(User.id)).where(User.is_admin == 1)) or 0
+    if count > 0:
+        raise HTTPException(403, "O administrador inicial já foi cadastrado")
+
+    email = data.email.strip().lower()
+    existing = db.scalar(select(User).where(User.email == email))
+    if existing:
+        raise HTTPException(409, "Este e-mail já está em uso")
+
+    # Admin does not need CPF for account administration.
+    admin_user = User(
+        name=data.name.strip(),
+        email=email,
+        cpf_hash="ADMIN-" + secrets.token_hex(16),
+        cpf_last4="",
+        password_hash=hash_password(data.password),
+        is_admin=1,
+        is_blocked=0,
+        demo_balance_cents=0,
+    )
+    db.add(admin_user)
+    db.flush()
+    audit(db, admin_user.id, "ADMIN_INITIAL_SETUP", "Primeiro administrador criado")
+    db.commit()
+    return {"ok": True, "message": "Administrador criado. Agora faça o login."}
+
 @app.post("/api/admin/login")
 def admin_login(data: LoginIn, request: Request, db: Session = Depends(get_db)):
     rate_limit(request, "admin-login", 8, 60)
@@ -958,7 +999,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "5.9.1",
+        "version": "5.9.2",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

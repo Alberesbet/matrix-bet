@@ -1,4 +1,4 @@
-const CACHE = 'matrix-bet-v591-shell';
+const CACHE = 'matrix-bet-v592-shell';
 const SHELL = ['/', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
 
 self.addEventListener('install', event => {
