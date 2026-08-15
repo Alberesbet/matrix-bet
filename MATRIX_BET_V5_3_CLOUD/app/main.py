@@ -174,7 +174,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.4 MERCADOS COMPLETOS API", version="6.4.0")
+app = FastAPI(title="MATRIX BET V6.5 FILTROS MERCADOS API", version="6.5.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -447,6 +447,14 @@ def build_demo_markets(event):
             {"market":"Primeiro Gol","pick":"first_goal_away","label":"Fora","odd":odd(2.10,6,0.14)},
             {"market":"Primeiro Gol","pick":"first_goal_none","label":"Sem gol","odd":odd(7.50,5,0.45)},
         ]},
+        {"group":"Handicap","items":[
+            {"market":"Handicap","pick":"home_-0_5","label":"Casa -0.5","odd":odd(1.85,6,0.10)},
+            {"market":"Handicap","pick":"away_+0_5","label":"Fora +0.5","odd":odd(1.75,6,0.09)},
+            {"market":"Handicap","pick":"home_-1_0","label":"Casa -1.0","odd":odd(2.35,6,0.13)},
+            {"market":"Handicap","pick":"away_+1_0","label":"Fora +1.0","odd":odd(1.50,6,0.08)},
+            {"market":"Handicap","pick":"home_+0_5","label":"Casa +0.5","odd":odd(1.38,6,0.06)},
+            {"market":"Handicap","pick":"away_-0_5","label":"Fora -0.5","odd":odd(2.20,6,0.12)},
+        ]},
         {"group":"Escanteios","items":[
             {"market":"Total de Escanteios","pick":"corners_over_7_5","label":"Mais de 7.5","odd":odd(1.55,6,0.08)},
             {"market":"Total de Escanteios","pick":"corners_over_9_5","label":"Mais de 9.5","odd":odd(1.95,6,0.11)},
@@ -532,7 +540,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.4.0",
+        "version": "6.5.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -645,7 +653,7 @@ def me(user: User = Depends(get_current_user)):
 
 @app.get("/api/events")
 def events(user: User = Depends(get_current_user)):
-    return {"events": PREGAME}
+    return {"events": [{**e, "markets": build_demo_markets(e)} for e in PREGAME]}
 
 @app.get("/api/live")
 def get_live(user: User = Depends(get_current_user)):
@@ -1350,7 +1358,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.4.0",
+        "version": "6.5.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1368,7 +1376,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.4.0",
+        "version": "6.5.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 
