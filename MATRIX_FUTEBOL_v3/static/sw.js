@@ -1,5 +1,13 @@
-const CACHE="matrix-futebol-v317clearanalysisvalue";
-self.addEventListener("install",()=>self.skipWaiting());
+const CACHE="matrix-futebol-v318pwaover15volume";
+self.addEventListener("install",e=>{
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll([
+    "/",
+    "/static/manifest.webmanifest",
+    "/static/icon-192.png",
+    "/static/icon-512.png"
+  ])).catch(()=>{}));
+  self.skipWaiting();
+});
 self.addEventListener("activate",e=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(
     keys.filter(k=>k.startsWith("matrix-futebol-")&&k!==CACHE).map(k=>caches.delete(k))

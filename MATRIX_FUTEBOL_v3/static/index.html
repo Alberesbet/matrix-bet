@@ -19,7 +19,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 .reason,.h2h{margin-top:9px;padding-top:9px;border-top:1px solid #253942;font-size:12px;color:#c5d1cc}.score{font-size:25px;font-weight:900;margin:7px 0}.clock{font-size:17px;font-weight:900;color:#ff9fbd}
 .betbox{margin-top:10px;padding:10px;background:#0b1319;border:1px solid #22343d;border-radius:10px}.betinput{width:100px;padding:8px;border-radius:8px;border:1px solid #36505b;background:#071015;color:#fff}
 .smallgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.mini{background:#0b1319;border-radius:9px;padding:8px;text-align:center}.mini b{display:block;margin-top:3px}
-.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}.infoBox{margin-top:10px;padding:10px;border:1px solid #2c4855;border-radius:10px;background:#0b151c}.why{margin-top:8px;padding:9px;border-left:3px solid #49e7a4;background:#0b151c;font-size:12px}.warnText{color:#ffd96c}
+.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}.infoBox{margin-top:10px;padding:10px;border:1px solid #2c4855;border-radius:10px;background:#0b151c}.why{margin-top:8px;padding:9px;border-left:3px solid #49e7a4;background:#0b151c;font-size:12px}.warnText{color:#ffd96c}.installbar{margin:10px 0;padding:12px;border:1px solid #347b5b;border-radius:12px;background:#10231b}.installActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.volumeTable{margin-top:8px;border:1px solid #263b44;border-radius:9px;overflow:hidden}.volumeRow{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px;padding:7px 9px;border-top:1px solid #263b44;font-size:12px}.volumeRow:first-child{border-top:0}.volumeHead{font-weight:900;color:#8ca098;background:#0b1319}
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
@@ -28,9 +28,21 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.17 • ANÁLISE DE ENTRADA CLARA • AUTO DEMO • BETFAIR</div>
+      <div class="sub">V3.18 • PWA • +/− 1,5 GOLS • VOLUME POR TIME • BETFAIR</div>
     </div>
-    <button id="go" class="btn">ANALISAR AGORA</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
+      <button id="go" class="btn">ANALISAR AGORA</button>
+    </div>
+  </div>
+
+  <div id="installBanner" class="installbar">
+    <strong>MATRIX FUTEBOL no celular</strong>
+    <div class="muted">Você pode instalar como aplicativo ou continuar usando normalmente pela web.</div>
+    <div class="installActions">
+      <button id="installNow" class="btn">📲 INSTALAR APP</button>
+      <button id="continueWeb" class="btn2">CONTINUAR PELA WEB</button>
+    </div>
   </div>
 
   <div class="grid">
@@ -271,8 +283,8 @@ function renderDemo(){
       <div class="infoBox">
         <b>Como ler os valores:</b><br>
         <span class="money">Valor disponível na seleção</span> = dinheiro disponível naquela cotação do time/seleção mostrada.<br>
-        <span class="money">Total correspondido do mercado</span> = todo o dinheiro já negociado no mercado inteiro, incluindo outras seleções e BACK/LAY.<br>
-        <span class="warnText">O total correspondido NÃO é o total apostado somente no time escolhido.</span>
+        <span class="money">Total correspondido deste mercado da partida</span> = todo o dinheiro já correspondido somente neste mercado específico desta partida.<br>
+        <span class="warnText">Exemplo: em “Resultado da partida”, soma apenas as três seleções daquela partida (mandante + empate + visitante), e NÃO todos os jogos da Betfair.</span>
       </div>
       <div class="row"><span>Banca de demonstração</span><b>${money(d.banca_inicial||1000)}</b></div>
       <div class="row"><span>Valor por entrada</span><b>${money(d.valor_por_entrada||10)}</b></div>
@@ -280,9 +292,11 @@ function renderDemo(){
       <div class="row"><span>Máximo por partida</span><b>${d.max_por_partida||2}</b></div>
       <div class="row"><span>Janela</span><b>${d.minuto_min||2}–${d.minuto_max||75} min</b></div>
       <div class="row"><span>Odd</span><b>${d.odd_min||1.3}–${d.odd_max||3.5}</b></div>
-      <div class="row"><span>Total correspondido mínimo</span><b>${money(d.liquidez_minima||500)}</b></div>
+      <div class="row"><span>Mínimo correspondido neste mercado</span><b>${money(d.liquidez_minima||500)}</b></div>
       <div class="row"><span>Valor mínimo no nome/seleção</span><b>${money(d.valor_minimo_na_selecao||50)}</b></div>
       <div class="row"><span>Candidatos agora</span><b>${d.total_candidatos||0}</b></div>
+      <div class="row"><span>Volume correspondido POR TIME</span><b>${d.volume_por_selecao_api?'ATIVO ✓':'AGUARDANDO API'}</b></div>
+      <div class="reason"><b>Volume por seleção:</b> ${esc(d.volume_por_selecao_status||'')}</div>
       <div class="reason"><b>Análise por valor no nome:</b> ${esc(d.observacao_valor||'')}</div>
       <div class="reason"><b>Mercados:</b> ${(d.mercados||[]).map(esc).join(' • ')}</div>
       <div class="reason"><b>Segurança:</b> somente demonstração. Nenhuma ordem real é enviada.</div>
@@ -301,8 +315,25 @@ function renderDemo(){
       <div class="row"><span>Valor disponível NESTA seleção/cotação</span><b class="money">${money(x.valor_na_selecao)}</b></div>
       <div class="muted">Esse valor pertence à cotação exibida da seleção ${esc(x.selecao)}.</div>
 
-      <div class="row"><span>Total correspondido em TODO o mercado</span><b>${esc(x.total_correspondido||'—')}</b></div>
-      <div class="muted">Esse total soma o mercado inteiro; não é dinheiro apostado apenas em ${esc(x.selecao)}.</div>
+      <div class="row"><span>Total correspondido neste mercado da partida</span><b>${esc(x.total_correspondido||'—')}</b></div>
+      <div class="muted">Esse valor pertence somente a este mercado desta partida; ainda assim ele soma todas as seleções desse mercado, não apenas ${esc(x.selecao)}.</div>
+
+      ${x.volume_por_selecao_disponivel?`
+        <div class="infoBox">
+          <b>VOLUME CORRESPONDIDO POR SELEÇÃO/TIME — BETFAIR API</b>
+          <div class="volumeTable">
+            <div class="volumeRow volumeHead"><span>Seleção</span><span>Correspondido</span><span>Última odd</span></div>
+            ${(x.volumes_selecoes||[]).map(v=>`
+              <div class="volumeRow">
+                <span>${esc(v.selection)}</span>
+                <b class="${normText(v.selection)===normText(x.selecao)?'money':''}">${money(v.total_matched)}</b>
+                <span>${v.last_price_traded??'—'}</span>
+              </div>`).join('')}
+          </div>
+          <div class="row"><span>Maior volume correspondido</span><b>${esc(x.selecao_maior_volume||'—')}</b></div>
+          <div class="row"><span>Robô entrou no maior volume?</span><b>${x.confirmacao_maior_volume?'SIM ✓':'NÃO'}</b></div>
+        </div>`
+        :`<div class="reason"><b>Volume por time:</b> ${esc(x.volume_por_selecao_motivo||'O CSV atual não separa o correspondido por seleção. Conecte a Betfair API para mostrar Hamburgo / empate / adversário separadamente.')}</div>`}
 
       <div class="row"><span>Índice de triagem MATRIX</span><b>${x.indice_demo}%</b></div>
       <div class="row"><span>Valor DEMO</span><b>${money(x.stake)}</b></div>
@@ -313,13 +344,13 @@ function renderDemo(){
         1. ${esc(x.selecao)} era o 1º favorito exibido pelo BF Bot/Betfair.<br>
         2. Odd ${Number(x.odd).toFixed(2)} estava dentro da faixa permitida.<br>
         3. Valor disponível na seleção: ${money(x.valor_na_selecao)}.<br>
-        4. Total correspondido do mercado: ${esc(x.total_correspondido||'—')}.<br>
+        4. Total correspondido neste mercado: ${esc(x.total_correspondido||'—')}.<br>
         5. Minuto aproximado: ${x.minuto}, dentro da janela de entrada.<br>
         6. Índice de triagem MATRIX: ${x.indice_demo}%.
       </div>
 
       <div class="reason">${esc(x.motivo)}</div>
-      <div class="reason"><b>Mais apostado?</b> O CSV atual não informa quanto foi correspondido separadamente em cada time. Portanto o MATRIX não inventa 70/30; ele confirma o 1º favorito, a odd e o valor disponível na seleção.</div>
+      <div class="reason"><b>Mais apostado?</b> Com o CSV sozinho não há volume correspondido separado por time. Quando a Betfair API estiver conectada, o MATRIX passa a mostrar o total correspondido de cada seleção e identifica qual teve o maior volume.</div>
     </div>`).join('')}
     ${!c.length?'<div class="item"><b>Nenhuma entrada AUTO DEMO liberada agora.</b><div class="muted">Atualize os dados visíveis para renovar odds e valores.</div></div>':''}
   `;
@@ -483,15 +514,15 @@ function renderBet(b){
       <div class="row"><span>Valor disponível NESTA seleção/cotação</span><b class="money">${money(b.valor_na_selecao)}</b></div>
       <div class="muted">Valor disponível na cotação do time/seleção escolhida.</div>`:''}
     ${b.total_correspondido?`
-      <div class="row"><span>Total correspondido em TODO o mercado</span><b>${esc(b.total_correspondido)}</b></div>
-      <div class="muted">Mercado inteiro: inclui outras seleções e BACK/LAY.</div>`:''}
+      <div class="row"><span>Total correspondido neste mercado da partida</span><b>${esc(b.total_correspondido)}</b></div>
+      <div class="muted">Somente este mercado desta partida; inclui todas as seleções dele e BACK/LAY.</div>`:''}
 
     ${b.auto_demo?`<div class="why">
       <b>POR QUE ESTA ENTRADA FOI FEITA?</b><br>
       ${b.time_favorito_betfair?`• O robô escolheu <b>${esc(b.selecao)}</b>, que era o 1º favorito exibido pela Betfair/BF Bot.<br>`:''}
       • Odd registrada: <b>${Number(b.odd||0).toFixed(2)}</b>.<br>
       ${b.valor_na_selecao?`• Valor disponível na seleção: <b>${money(b.valor_na_selecao)}</b>.<br>`:''}
-      ${b.total_correspondido?`• Total correspondido do mercado: <b>${esc(b.total_correspondido)}</b>.<br>`:''}
+      ${b.total_correspondido?`• Total correspondido neste mercado: <b>${esc(b.total_correspondido)}</b>.<br>`:''}
       ${b.minuto_entrada!==undefined?`• Minuto aproximado da entrada: <b>${esc(b.minuto_entrada)}</b>.<br>`:''}
       ${b.indice_demo!==undefined?`• Índice de triagem MATRIX: <b>${esc(b.indice_demo)}%</b>.<br>`:''}
       <span class="warnText">O CSV atual não permite afirmar que esse time recebeu a maior porcentagem do dinheiro correspondido; ele mostra o 1º favorito e o valor disponível na cotação.</span>
@@ -848,6 +879,69 @@ window.placeBet=function(idx){
   saveBets(bets);
   alert(`Simulação registrada com odd BETFAIR ${odd.toFixed(2)}: ${x.selecao} • ${money(stake)} • retorno potencial ${money(retorno)}`);
 };
+
+
+let deferredInstallPrompt=null;
+
+function isInstalledPwa(){
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.navigator.standalone===true;
+}
+
+function hideInstallBanner(){
+  const b=$('installBanner');
+  if(b)b.style.display='none';
+}
+
+async function askInstall(){
+  if(isInstalledPwa()){
+    alert('O MATRIX FUTEBOL já está instalado neste aparelho.');
+    hideInstallBanner();
+    return;
+  }
+
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    const choice=await deferredInstallPrompt.userChoice;
+    if(choice&&choice.outcome==='accepted'){
+      hideInstallBanner();
+    }
+    deferredInstallPrompt=null;
+    return;
+  }
+
+  const ua=navigator.userAgent||'';
+  if(/iphone|ipad|ipod/i.test(ua)){
+    alert('No iPhone/iPad: toque em Compartilhar e escolha “Adicionar à Tela de Início”.');
+  }else{
+    alert('No Chrome: abra o menu ⋮ e escolha “Instalar app” ou “Adicionar à tela inicial”.');
+  }
+}
+
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  if(!isInstalledPwa() && localStorage.getItem('matrix_continue_web')!=='1'){
+    const b=$('installBanner');
+    if(b)b.style.display='block';
+  }
+});
+
+window.addEventListener('appinstalled',()=>{
+  hideInstallBanner();
+  localStorage.removeItem('matrix_continue_web');
+});
+
+if($('installNow'))$('installNow').onclick=askInstall;
+if($('installAppTop'))$('installAppTop').onclick=askInstall;
+if($('continueWeb'))$('continueWeb').onclick=()=>{
+  localStorage.setItem('matrix_continue_web','1');
+  hideInstallBanner();
+};
+
+if(isInstalledPwa() || localStorage.getItem('matrix_continue_web')==='1'){
+  hideInstallBanner();
+}
 
 async function refresh(){
   try{

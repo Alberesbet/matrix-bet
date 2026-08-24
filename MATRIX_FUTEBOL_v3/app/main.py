@@ -42,9 +42,23 @@ CONFIG = {
     "demo_min_selection_value": float(os.getenv("MATRIX_DEMO_MIN_SELECTION_VALUE", "50")),
     "demo_min_live_minute": int(os.getenv("MATRIX_DEMO_MIN_LIVE_MINUTE", "2")),
     "demo_max_live_minute": int(os.getenv("MATRIX_DEMO_MAX_LIVE_MINUTE", "75")),
-    "demo_max_per_event": int(os.getenv("MATRIX_DEMO_MAX_PER_EVENT", "2")),
+    "demo_max_per_event": int(os.getenv("MATRIX_DEMO_MAX_PER_EVENT", "3")),
     "demo_max_open": int(os.getenv("MATRIX_DEMO_MAX_OPEN", "20")),
     "demo_data_max_age_seconds": int(os.getenv("MATRIX_DEMO_DATA_MAX_AGE_SECONDS", "900")),
+
+    # Betfair API opcional para volume CORRESPONDIDO por seleção/time.
+    # Nunca exponha essas chaves no navegador; configure somente como Environment Variables no servidor.
+    "betfair_app_key": os.getenv("BETFAIR_APP_KEY", "").strip(),
+    "betfair_session_token": os.getenv("BETFAIR_SESSION_TOKEN", "").strip(),
+    "betfair_api_url": os.getenv(
+        "BETFAIR_API_URL",
+        "https://api.betfair.com/exchange/betting/json-rpc/v1"
+    ).strip(),
+    "betfair_runner_volume_ttl": int(os.getenv("BETFAIR_RUNNER_VOLUME_TTL", "15")),
+    # Mantido FALSE durante o teste DEMO: mostra a confirmação por volume sem bloquear entradas.
+    "demo_require_top_runner_volume": os.getenv(
+        "MATRIX_DEMO_REQUIRE_TOP_RUNNER_VOLUME", "false"
+    ).strip().lower() in ("1","true","yes","sim"),
 }
 
 STATE = {
@@ -88,6 +102,10 @@ BETFAIR_MARKETS_CACHE_FILE = Path(
 LOCK = threading.RLock()
 H2H_CACHE = {}
 H2H_TTL = 12 * 60 * 60
+
+BETFAIR_RUNNER_VOLUME_CACHE = {}
+BETFAIR_RUNNER_VOLUME_LOCK = threading.RLock()
+
 
 
 def _mask(value, keep_start=2, keep_end=2):
@@ -898,6 +916,13 @@ def _demo_market_kind(market):
     if _market_is_match_odds(market):
         return "MATCH_ODDS"
     if (
+        "mais menos de 1 5" in name
+        or "over under 1 5" in name
+        or "over under 1.5" in name
+    ):
+        return "OVER_UNDER_15"
+
+    if (
         "mais menos de 2 5" in name
         or "over under 2 5" in name
         or "over under 2.5" in name
@@ -1038,7 +1063,7 @@ def demo_live_candidates():
             ),
         })
 
-    priority = {"MATCH_ODDS": 0, "OVER_UNDER_25": 1, "BOTH_TEAMS_SCORE": 2}
+    priority = {"MATCH_ODDS": 0, "OVER_UNDER_15": 1, "OVER_UNDER_25": 2, "BOTH_TEAMS_SCORE": 3}
     by_event = {}
     for c in eligible:
         by_event.setdefault(c["event_key"], []).append(c)
@@ -1077,8 +1102,222 @@ def demo_result_rows():
     return out
 
 
+
+def _betfair_api_ready():
+    return bool(CONFIG["betfair_app_key"] and CONFIG["betfair_session_token"])
+
+
+def _betfair_api_rpc(method, params):
+    if not _betfair_api_ready():
+        raise RuntimeError("BETFAIR_APP_KEY / BETFAIR_SESSION_TOKEN não configurados.")
+
+    payload = [{
+        "jsonrpc": "2.0",
+        "method": f"SportsAPING/v1.0/{method}",
+        "params": params,
+        "id": 1,
+    }]
+    headers = {
+        "X-Application": CONFIG["betfair_app_key"],
+        "X-Authentication": CONFIG["betfair_session_token"],
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    r = requests.post(
+        CONFIG["betfair_api_url"],
+        headers=headers,
+        json=payload,
+        timeout=12,
+    )
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, list) or not data:
+        raise RuntimeError("Resposta inesperada da Betfair API.")
+    item = data[0]
+    if item.get("error"):
+        raise RuntimeError(str(item["error"]))
+    return item.get("result") or []
+
+
+def _runner_volume_cache_get(market_id):
+    now_ts = time.time()
+    with BETFAIR_RUNNER_VOLUME_LOCK:
+        item = BETFAIR_RUNNER_VOLUME_CACHE.get(market_id)
+        if not item:
+            return None
+        if now_ts - item["ts"] > CONFIG["betfair_runner_volume_ttl"]:
+            return None
+        return item["value"]
+
+
+def _runner_volume_cache_set(market_id, value):
+    with BETFAIR_RUNNER_VOLUME_LOCK:
+        BETFAIR_RUNNER_VOLUME_CACHE[market_id] = {
+            "ts": time.time(),
+            "value": value,
+        }
+
+
+def betfair_runner_volumes(market_ids):
+    """
+    Volume correspondido POR seleção/runner via API oficial Betfair.
+
+    O CSV do BF Bot Manager fornece:
+      - 1º favorito
+      - valor disponível nessa cotação
+      - total correspondido do MERCADO
+
+    A API listMarketBook fornece runner.totalMatched e EX_TRADED,
+    permitindo separar Hamburgo / Empate / Verl, por exemplo.
+    """
+    ids = [str(x).strip() for x in market_ids if str(x).strip()]
+    ids = list(dict.fromkeys(ids))
+    result = {}
+
+    # Cache first.
+    missing = []
+    for mid in ids:
+        cached = _runner_volume_cache_get(mid)
+        if cached is not None:
+            result[mid] = cached
+        else:
+            missing.append(mid)
+
+    if not missing:
+        return result
+
+    if not _betfair_api_ready():
+        for mid in missing:
+            result[mid] = {
+                "ok": False,
+                "source": "BETFAIR_API",
+                "reason": "API Betfair ainda não conectada no servidor.",
+                "runners": [],
+            }
+        return result
+
+    # EX_BEST_OFFERS + EX_TRADED has request weight; use max 10 markets per batch.
+    for pos in range(0, len(missing), 10):
+        batch = missing[pos:pos+10]
+        try:
+            catalog = _betfair_api_rpc(
+                "listMarketCatalogue",
+                {
+                    "filter": {"marketIds": batch},
+                    "maxResults": str(len(batch)),
+                    "marketProjection": ["RUNNER_DESCRIPTION", "EVENT"],
+                },
+            )
+            names = {}
+            for m in catalog:
+                mid = str(m.get("marketId") or "")
+                names[mid] = {
+                    str(r.get("selectionId")): r.get("runnerName")
+                    for r in (m.get("runners") or [])
+                }
+
+            books = _betfair_api_rpc(
+                "listMarketBook",
+                {
+                    "marketIds": batch,
+                    "priceProjection": {
+                        "priceData": ["EX_BEST_OFFERS", "EX_TRADED"],
+                        "virtualise": True,
+                    },
+                },
+            )
+
+            returned = set()
+            for book in books:
+                mid = str(book.get("marketId") or "")
+                returned.add(mid)
+                runner_rows = []
+                for rr in (book.get("runners") or []):
+                    sid = str(rr.get("selectionId"))
+                    ex = rr.get("ex") or {}
+                    backs = ex.get("availableToBack") or []
+                    lays = ex.get("availableToLay") or []
+                    traded = ex.get("tradedVolume") or []
+                    runner_rows.append({
+                        "selection_id": sid,
+                        "selection": names.get(mid, {}).get(sid) or sid,
+                        "total_matched": float(rr.get("totalMatched") or 0),
+                        "last_price_traded": rr.get("lastPriceTraded"),
+                        "best_back_price": (backs[0].get("price") if backs else None),
+                        "best_back_size": (backs[0].get("size") if backs else None),
+                        "best_lay_price": (lays[0].get("price") if lays else None),
+                        "best_lay_size": (lays[0].get("size") if lays else None),
+                        "traded_volume": traded,
+                    })
+
+                runner_rows.sort(key=lambda x: x["total_matched"], reverse=True)
+                value = {
+                    "ok": True,
+                    "source": "BETFAIR_API",
+                    "market_id": mid,
+                    "market_total_matched": float(book.get("totalMatched") or 0),
+                    "inplay": bool(book.get("inplay")),
+                    "runners": runner_rows,
+                    "top_runner": (runner_rows[0] if runner_rows else None),
+                }
+                result[mid] = value
+                _runner_volume_cache_set(mid, value)
+
+            for mid in batch:
+                if mid not in returned:
+                    value = {
+                        "ok": False,
+                        "source": "BETFAIR_API",
+                        "reason": "MarketId não retornado pela Betfair API.",
+                        "runners": [],
+                    }
+                    result[mid] = value
+                    _runner_volume_cache_set(mid, value)
+
+        except Exception as e:
+            for mid in batch:
+                value = {
+                    "ok": False,
+                    "source": "BETFAIR_API",
+                    "reason": str(e),
+                    "runners": [],
+                }
+                result[mid] = value
+                _runner_volume_cache_set(mid, value)
+
+    return result
+
+
+def enrich_demo_candidates_with_runner_volume(candidates):
+    if not candidates:
+        return candidates
+
+    volume_map = betfair_runner_volumes(
+        [x.get("market_id") for x in candidates if x.get("market_id")]
+    )
+
+    for c in candidates:
+        info = volume_map.get(str(c.get("market_id") or "")) or {}
+        c["volume_por_selecao_disponivel"] = bool(info.get("ok"))
+        c["volume_por_selecao_fonte"] = info.get("source") or "BETFAIR_API"
+        c["volume_por_selecao_motivo"] = info.get("reason")
+        c["volumes_selecoes"] = info.get("runners") or []
+
+        top = info.get("top_runner") or {}
+        c["selecao_maior_volume"] = top.get("selection")
+        c["selecao_maior_volume_valor"] = top.get("total_matched")
+
+        chosen = _norm_text(c.get("selecao"))
+        top_name = _norm_text(top.get("selection"))
+        c["confirmacao_maior_volume"] = bool(
+            chosen and top_name and chosen == top_name
+        )
+
+    return candidates
+
+
 def demo_auto_snapshot():
-    c = demo_live_candidates()
+    c = enrich_demo_candidates_with_runner_volume(demo_live_candidates())
     return {
         "habilitado": CONFIG["demo_auto_enabled"],
         "modo": "DEMONSTRACAO",
@@ -1098,9 +1337,16 @@ def demo_auto_snapshot():
         "total_candidatos": len(c),
         "mercados": [
             "Resultado da partida (Match Odds)",
+            "Mais/Menos de 1,5 gols",
             "Mais/Menos de 2,5 gols",
             "Ambas marcam (quando vier no CSV)",
         ],
+        "volume_por_selecao_api": _betfair_api_ready(),
+        "volume_por_selecao_status": (
+            "ATIVO - volume correspondido de cada seleção disponível"
+            if _betfair_api_ready()
+            else "AGUARDANDO BETFAIR API - o CSV sozinho não separa volume por time"
+        ),
         "analise_valor_selecao": True,
         "observacao_valor": (
             "O valor junto ao nome/seleção é liquidez disponível na cotação exibida, "
