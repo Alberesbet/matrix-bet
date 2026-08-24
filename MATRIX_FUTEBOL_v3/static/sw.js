@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v328-betfair-login";
+const CACHE="matrix-futebol-v329-betfair-login";
 const STATIC=["/static/manifest.webmanifest","/static/icon-192.png","/static/icon-512.png"];
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).catch(()=>{}));

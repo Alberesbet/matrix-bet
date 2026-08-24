@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.28">
+<body data-matrix-version="3.29">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.28 • LOGIN BETFAIR • CONECTAR ROBÔ • LEITURA REAL</div>
+      <div class="sub">V3.29 • LOGIN BETFAIR • 3 BOTÕES • CONEXÃO</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -58,44 +58,27 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     “Partidas em andamento” considera apenas apostas de jogos que ainda estão realmente em andamento.
   </div>
 
+  
   <div class="card" style="margin:12px 0 16px 0;border:1px solid rgba(73,231,164,.55)">
-    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
-      <div>
-        <strong style="font-size:16px">FINALIZAÇÃO DAS APOSTAS DEMO</strong>
-        <div class="muted" style="margin-top:5px">
-          Procura os dois times + data/horário no SportMonks, busca o placar final e atualiza GANHOU/PERDEU.
-        </div>
-      </div>
-      <button class="btn" id="reconcileResultsBtn" onclick="reconcileResults()">🔄 RECONCILIAR RESULTADOS</button>
-    </div>
-    <div id="reconcileMsg" style="margin-top:9px;font-size:12px;opacity:.85"></div>
-  </div>
-
-
-  <div class="card" style="margin:10px 0 14px 0;border:1px solid rgba(73,231,164,.35)">
-    <strong>V3.27 — AO VIVO BETFAIR CORRIGIDO</strong>
-    <div class="muted" style="margin-top:5px">
-      Jogos marcados como IP/InPlay pelo BF Bot aparecem no MATRIX mesmo sem link SportMonks.
-      Apostas antigas aguardando resultado não bloqueiam novas entradas; somente apostas realmente em andamento ocupam as vagas.
-    </div>
-  </div>
-
-  <div class="card" style="margin:12px 0 16px 0;border:1px solid rgba(73,231,164,.55)">
-    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
-      <div>
-        <strong style="font-size:16px">CONEXÃO BETFAIR</strong>
-        <div class="muted" style="margin-top:5px">
-          O login da Betfair é separado do login do MATRIX. Mesmo que você use o mesmo e-mail, a senha da Betfair não é copiada pelo MATRIX.
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" id="betfairConnectBtn" onclick="connectBetfair()">🔌 LIGAR ROBÔ NA BETFAIR</button>
-        <button class="btn secondary" id="betfairDisconnectBtn" onclick="disconnectBetfair()">DESLIGAR</button>
+    <div>
+      <strong style="font-size:16px">CONEXÃO BETFAIR</strong>
+      <div class="muted" style="margin-top:5px">
+        Primeiro abra a Betfair e faça seu login. Depois volte ao MATRIX e toque em
+        “VERIFICAR / LIGAR ROBÔ”. O navegador mantém a sessão da Betfair, mas o
+        MATRIX ainda precisa da conexão de API configurada no servidor para ler a conta.
       </div>
     </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn" id="openBetfairBtn" onclick="openBetfairLogin()">🟡 ABRIR BETFAIR / LOGIN</button>
+      <button class="btn" id="betfairConnectBtn" onclick="connectBetfair()">🔌 VERIFICAR / LIGAR ROBÔ</button>
+      <button class="btn secondary" id="betfairDisconnectBtn" onclick="disconnectBetfair()">DESLIGAR</button>
+    </div>
+
     <div id="betfairLoginStatus" style="margin-top:10px;font-size:13px;opacity:.9">Verificando conexão...</div>
+
     <div class="muted" style="margin-top:6px">
-      V3.28: leitura real de mercados, odds, ao vivo e resultados. Execução com dinheiro real permanece bloqueada nesta fase.
+      O login do site e a conexão de API são coisas diferentes. O MATRIX não copia sua senha nem os cookies da Betfair.
     </div>
   </div>
   <div class="grid">
@@ -1222,6 +1205,20 @@ async function reconcileResults(){
 }
 
 
+
+function openBetfairLogin(){
+  // Abre a Betfair em nova aba/janela. A sessão fica mantida pelo próprio navegador.
+  const url='https://www.betfair.bet.br/';
+  const w=window.open(url,'_blank','noopener,noreferrer');
+  const box=$('betfairLoginStatus');
+  if(box){
+    box.textContent='🟡 Betfair aberta. Faça o login lá, depois volte aqui e toque em VERIFICAR / LIGAR ROBÔ.';
+  }
+  if(!w){
+    window.location.href=url;
+  }
+}
+
 async function refreshBetfairLogin(){
   const box=$('betfairLoginStatus');
   try{
@@ -1233,7 +1230,7 @@ async function refreshBetfairLogin(){
     if(d.connected){
       box.textContent=`🟢 BETFAIR CONECTADA • ${d.configured_username||d.username||''} • LEITURA REAL`;
     }else if(d.credentials_configured){
-      box.textContent='🟡 Credenciais configuradas. Clique em LIGAR ROBÔ NA BETFAIR.';
+      box.textContent='🟡 Credenciais de API configuradas. Toque em VERIFICAR / LIGAR ROBÔ.';
     }else{
       box.textContent='⚪ Configure BETFAIR_USERNAME, BETFAIR_PASSWORD e BETFAIR_APP_KEY no servidor.';
     }
@@ -1268,7 +1265,7 @@ async function connectBetfair(){
   }finally{
     if(btn){
       btn.disabled=false;
-      btn.textContent='🔌 LIGAR ROBÔ NA BETFAIR';
+      btn.textContent='🔌 VERIFICAR / LIGAR ROBÔ';
     }
   }
 }

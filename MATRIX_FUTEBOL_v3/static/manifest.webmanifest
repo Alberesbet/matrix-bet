@@ -1,7 +1,7 @@
 {
   "name": "MATRIX - FUTEBOL",
   "short_name": "MATRIX FUTEBOL",
-  "start_url": "/?v=3.28",
+  "start_url": "/?v=3.29",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -22,5 +22,5 @@
       "purpose": "any maskable"
     }
   ],
-  "id": "/matrix-futebol-v328-betfair-login"
+  "id": "/matrix-futebol-v329-betfair-login"
 }

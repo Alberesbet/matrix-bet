@@ -1392,7 +1392,7 @@ def betfair_api_live_snapshot():
 
 def betfair_live_payload():
     """
-    V3.28 LOGIN BETFAIR + CONECTAR ROBO
+    V3.29 TRES BOTOES LOGIN BETFAIR
     Fonte principal para jogos Betfair AO VIVO é o BF Bot/CSV fresco.
     Um jogo aparece no MATRIX se o BF Bot marcar IP/InPlay=True, mesmo que
     o SportMonks ainda não tenha linkado o fixture.
@@ -4646,9 +4646,9 @@ def betfair_login_status():
     data["configured_username"] = username or None
     data["execution_enabled"] = False
     data["message"] = (
-        "Conta Betfair conectada em modo leitura real."
+        "API Betfair conectada em modo leitura real."
         if data.get("connected")
-        else "Conta Betfair ainda não conectada."
+        else "API Betfair ainda não conectada. O login feito no site não é transferido automaticamente ao servidor MATRIX."
     )
     return data
 
@@ -5156,7 +5156,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.28", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
+    return {"ok": True, "versao": "3.29", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -5167,6 +5167,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.28",
+            "X-Matrix-Version": "3.29",
         },
     )
