@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="theme-color" content="#0b1117">
 <title>MATRIX - FUTEBOL</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
@@ -19,16 +22,16 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 .reason,.h2h{margin-top:9px;padding-top:9px;border-top:1px solid #253942;font-size:12px;color:#c5d1cc}.score{font-size:25px;font-weight:900;margin:7px 0}.clock{font-size:17px;font-weight:900;color:#ff9fbd}
 .betbox{margin-top:10px;padding:10px;background:#0b1319;border:1px solid #22343d;border-radius:10px}.betinput{width:100px;padding:8px;border-radius:8px;border:1px solid #36505b;background:#071015;color:#fff}
 .smallgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.mini{background:#0b1319;border-radius:9px;padding:8px;text-align:center}.mini b{display:block;margin-top:3px}
-.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}.infoBox{margin-top:10px;padding:10px;border:1px solid #2c4855;border-radius:10px;background:#0b151c}.why{margin-top:8px;padding:9px;border-left:3px solid #49e7a4;background:#0b151c;font-size:12px}.warnText{color:#ffd96c}.installbar{margin:10px 0;padding:12px;border:1px solid #347b5b;border-radius:12px;background:#10231b}.installActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.volumeTable{margin-top:8px;border:1px solid #263b44;border-radius:9px;overflow:hidden}.volumeRow{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px;padding:7px 9px;border-top:1px solid #263b44;font-size:12px}.volumeRow:first-child{border-top:0}.volumeHead{font-weight:900;color:#8ca098;background:#0b1319}
+.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}.infoBox{margin-top:10px;padding:10px;border:1px solid #2c4855;border-radius:10px;background:#0b151c}.why{margin-top:8px;padding:9px;border-left:3px solid #49e7a4;background:#0b151c;font-size:12px}.warnText{color:#ffd96c}.installbar{margin:10px 0;padding:12px;border:1px solid #347b5b;border-radius:12px;background:#10231b}.installActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.volumeTable{margin-top:8px;border:1px solid #263b44;border-radius:9px;overflow:hidden}.volumeRow{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px;padding:7px 9px;border-top:1px solid #263b44;font-size:12px}.volumeRow:first-child{border-top:0}.volumeHead{font-weight:900;color:#8ca098;background:#0b1319}.formBox{margin-top:10px;padding:10px;border:1px solid #315044;border-radius:10px;background:#0c1714}.formGame{margin-top:6px;padding:7px;border-top:1px dashed #315044;font-size:12px}.formStrong{color:#62efb5}.formWeak{color:#ffb4a8}
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body>
+<body data-matrix-version="3.21">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.18 • PWA • +/− 1,5 GOLS • VOLUME POR TIME • BETFAIR</div>
+      <div class="sub">V3.21 • SERVIDOR ÚNICO • FINALIZAÇÃO BETFAIR • BRASIL</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -45,6 +48,14 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     </div>
   </div>
 
+  <div class="infoBox" style="margin-bottom:10px">
+    <b>☁ DEMO SINCRONIZADA</b><br>
+    Notebook e celular usam o MESMO histórico do servidor.
+    “Minhas apostas”, AUTO DEMO, saldo, cancelamentos e resultados ficam iguais.
+    AO VIVO conta partidas; “Em andamento” conta apostas. Se houver 2 ou 3 mercados
+    na mesma partida, esses números podem ser diferentes.
+  </div>
+
   <div class="grid">
     <div class="card"><div class="label">Status</div><div id="status" class="big">...</div></div>
     <div class="card"><div class="label">Jogos próximos 30 dias</div><div id="jogos" class="big">0</div></div>
@@ -57,6 +68,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Saldo DEMO</div><div id="demoBalance" class="big">R$ 1.000,00</div></div>
     <div class="card"><div class="label">Auto DEMO feitas</div><div id="demoAutoCount" class="big">0</div></div>
     <div class="card"><div class="label">Oportunidades agora</div><div id="demoOpportunityCount" class="big">0</div></div>
+    <div class="card"><div class="label">Em andamento</div><div id="demoRunningCount" class="big">0</div></div>
+    <div class="card"><div class="label">Finalizadas</div><div id="demoFinishedCount" class="big">0</div></div>
+    <div class="card"><div class="label">Vitórias</div><div id="demoWinsCount" class="big">0</div></div>
+    <div class="card"><div class="label">Derrotas</div><div id="demoLossesCount" class="big">0</div></div>
+    <div class="card"><div class="label">Canceladas</div><div id="demoCanceledCount" class="big">0</div></div>
+    <div class="card"><div class="label">Sincronização</div><div id="cloudSyncStatus" class="big" style="font-size:18px">CONECTANDO</div></div>
   </div>
 
   <div class="tabs">
@@ -64,6 +81,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <button class="tab" data-mode="live">🔴 AO VIVO</button>
     <button class="tab" data-mode="lib">LIBERTADORES</button>
     <button class="tab" data-mode="intl">INTERNACIONAIS</button>
+    <button class="tab" data-mode="brasil">🇧🇷 BRASIL</button>
     <button class="tab" data-mode="todos">TODOS</button>
     <button class="tab" data-mode="bets">MINHAS APOSTAS</button>
     <button class="tab" data-mode="demo">🤖 AUTO DEMO</button>
@@ -85,13 +103,79 @@ const $=id=>document.getElementById(id);
 const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function getBets(){try{return JSON.parse(localStorage.getItem('matrix_bets_v33')||'[]')}catch(e){return[]}}
-function saveBets(v){
-  localStorage.setItem('matrix_bets_v33',JSON.stringify(v));
-  if($('bets'))$('bets').textContent=v.length;
+function getBets(){
+  try{return JSON.parse(localStorage.getItem('matrix_bets_v33')||'[]')}
+  catch(e){return[]}
+}
+
+function setBetsLocal(v){
+  const list=Array.isArray(v)?v:[];
+  localStorage.setItem('matrix_bets_v33',JSON.stringify(list));
+  if($('bets'))$('bets').textContent=list.length;
   if($('demoAutoCount')){
-    $('demoAutoCount').textContent=v.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO').length;
+    $('demoAutoCount').textContent=list.filter(
+      b=>b.auto_demo===true || b.modo==='AUTO DEMO'
+    ).length;
   }
+}
+
+let cloudSyncBusy=false;
+let cloudSyncPending=false;
+let cloudSyncTimer=null;
+
+function setCloudStatus(text,ok=true){
+  const el=$('cloudSyncStatus');
+  if(!el)return;
+  el.textContent=text;
+  el.style.color=ok?'#49e7a4':'#ffd96c';
+}
+
+async function syncBetsCloud(){
+  if(cloudSyncBusy){
+    cloudSyncPending=true;
+    return;
+  }
+
+  cloudSyncBusy=true;
+  setCloudStatus('SINCRONIZANDO',true);
+
+  try{
+    const local=getBets();
+    const r=await fetch('/api/demo-bets/sync',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      cache:'no-store',
+      body:JSON.stringify({bets:local})
+    });
+    const data=await r.json();
+
+    if(!r.ok || !data.ok || !Array.isArray(data.bets)){
+      throw new Error(data.erro||'Falha no sync');
+    }
+
+    setBetsLocal(data.bets);
+    setCloudStatus('SERVIDOR OK',true);
+    updateDemoCounters();
+  }catch(e){
+    // O painel continua usando o cache local se a internet/servidor falhar.
+    setCloudStatus('CACHE LOCAL',false);
+  }finally{
+    cloudSyncBusy=false;
+    if(cloudSyncPending){
+      cloudSyncPending=false;
+      setTimeout(syncBetsCloud,100);
+    }
+  }
+}
+
+function scheduleCloudSync(){
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer=setTimeout(syncBetsCloud,120);
+}
+
+function saveBets(v){
+  setBetsLocal(v);
+  scheduleCloudSync();
 }
 
 function normText(s){
@@ -125,23 +209,24 @@ function updateDemoCounters(){
   const s=demoStats();
   const allBets=getBets();
   const autoBets=allBets.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO');
+  const cloud=(state&&state.demo_cloud)||{};
 
   if($('demoBalance'))$('demoBalance').textContent=money(s.available);
-
-  // Agora este contador representa apostas realmente registradas,
-  // e não as oportunidades/candidatos atuais.
-  if($('demoAutoCount'))$('demoAutoCount').textContent=autoBets.length;
-
-  // O número de oportunidades atuais fica separado.
+  if($('demoAutoCount'))$('demoAutoCount').textContent=cloud.auto_demo_total??autoBets.length;
   if($('demoOpportunityCount')){
     $('demoOpportunityCount').textContent=((state&&state.demo_auto&&state.demo_auto.total_candidatos)||0);
   }
-
-  // Total absoluto de apostas no histórico.
-  if($('bets'))$('bets').textContent=allBets.length;
+  if($('demoRunningCount'))$('demoRunningCount').textContent=cloud.auto_demo_em_andamento??0;
+  if($('demoFinishedCount'))$('demoFinishedCount').textContent=cloud.auto_demo_finalizadas??0;
+  if($('demoWinsCount'))$('demoWinsCount').textContent=cloud.vitorias??0;
+  if($('demoLossesCount'))$('demoLossesCount').textContent=cloud.derrotas??0;
+  if($('demoCanceledCount'))$('demoCanceledCount').textContent=cloud.canceladas??0;
+  if($('bets'))$('bets').textContent=cloud.total??allBets.length;
 }
 
 function settleDemoBets(){
+  // V3.21: o servidor é a fonte única de finalização.
+  return;
   if(!state)return;
   const results=state.demo_resultados||[];
   if(!results.length)return;
@@ -174,6 +259,8 @@ function settleDemoBets(){
 }
 
 function autoDemoBets(){
+  // V3.21: o servidor é a fonte única de novas AUTO DEMO.
+  return;
   const d=(state&&state.demo_auto)||{};
   if(!d.habilitado||!d.dados_frescos_para_demo)return;
   const candidates=d.candidatos||[];
@@ -216,6 +303,10 @@ function autoDemoBets(){
       valor_na_selecao:Number(c.valor_na_selecao||0),
       total_correspondido:c.total_correspondido,
       indice_demo:c.indice_demo,
+      forma_recente:c.forma_recente||null,
+      forma_time_escolhido:c.forma_time_escolhido||null,
+      forma_vantagem:c.forma_vantagem||null,
+      forma_confirma_entrada:c.forma_confirma_entrada,
       prob_implicita:c.prob_implicita,
       time_favorito_betfair:c.time_favorito_betfair||c.selecao,
       confirmacao_favorito:!!c.confirmacao_favorito,
@@ -249,25 +340,47 @@ function currentMonthBets(){
 
 function renderMonthlySummary(){
   const bets=currentMonthBets();
-  let wins=0,losses=0,pending=0,canceled=0,profit=0,stakes=0;
+  let wins=0,losses=0,pending=0,canceled=0,finished=0;
+  let profit=0,effectiveStake=0,canceledStake=0,openStake=0,totalMovement=0;
+
   bets.forEach(b=>{
-    stakes+=Number(b.stake||0);
-    if(b.status==='GANHOU'){wins++;profit+=Number(b.lucro_real??b.lucro??0);}
-    else if(b.status==='PERDEU'){losses++;profit-=Number(b.stake||0);}
-    else if(b.status==='CANCELADA'||b.status==='ANULADA'){canceled++;}
-    else pending++;
+    const stake=Number(b.stake||0);
+    totalMovement+=stake;
+
+    if(b.status==='GANHOU'){
+      wins++; finished++; effectiveStake+=stake;
+      profit+=Number(b.lucro_real??b.lucro??0);
+    }else if(b.status==='PERDEU'){
+      losses++; finished++; effectiveStake+=stake;
+      profit-=stake;
+    }else if(b.status==='CANCELADA'||b.status==='ANULADA'){
+      canceled++; canceledStake+=stake;
+    }else{
+      pending++; effectiveStake+=stake; openStake+=stake;
+    }
   });
+
+  const auto=bets.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO').length;
+
   return `<div class="item">
     <div class="row"><strong>Resumo do mês</strong><span class="badge">DEMO</span></div>
     <div class="smallgrid">
       <div class="mini">Apostas totais<b>${bets.length}</b></div>
-      <div class="mini">Auto DEMO feitas<b>${bets.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO').length}</b></div>
+      <div class="mini">Auto DEMO realizadas<b>${auto}</b></div>
+      <div class="mini">Em andamento<b>${pending}</b></div>
+      <div class="mini">Finalizadas<b>${finished}</b></div>
       <div class="mini">Vitórias<b>${wins}</b></div>
       <div class="mini">Derrotas<b>${losses}</b></div>
-      <div class="mini">Pendentes<b>${pending}</b></div>
-      <div class="mini">Canceladas<b>${canceled}</b></div>
-      <div class="mini">Valor apostado<b>${money(stakes)}</b></div>
-      <div class="mini">Lucro/Prejuízo<b>${money(profit)}</b></div>
+      <div class="mini">Canceladas manualmente<b>${canceled}</b></div>
+      <div class="mini">Valor efetivamente apostado<b>${money(effectiveStake)}</b></div>
+      <div class="mini">Valor em andamento<b>${money(openStake)}</b></div>
+      <div class="mini">Valor cancelado/devolvido<b>${money(canceledStake)}</b></div>
+      <div class="mini">Movimentação registrada<b>${money(totalMovement)}</b></div>
+      <div class="mini">Lucro/Prejuízo realizado<b>${money(profit)}</b></div>
+    </div>
+    <div class="reason">
+      <b>Importante:</b> “Valor efetivamente apostado” não soma canceladas.
+      “Movimentação registrada” mostra tudo que chegou a ser lançado, inclusive cancelamentos.
     </div>
     <div class="row"><span>Saldo demo disponível</span><b class="money">${money(demoStats().available)}</b></div>
   </div>`;
@@ -299,6 +412,8 @@ function renderDemo(){
       <div class="reason"><b>Volume por seleção:</b> ${esc(d.volume_por_selecao_status||'')}</div>
       <div class="reason"><b>Análise por valor no nome:</b> ${esc(d.observacao_valor||'')}</div>
       <div class="reason"><b>Mercados:</b> ${(d.mercados||[]).map(esc).join(' • ')}</div>
+      <div class="reason"><b>Motor:</b> abertura e finalização AUTO DEMO rodam no servidor.</div>
+      <div class="reason"><b>Finalização:</b> Betfair API → CSV vencedor → SportMonks, nesta ordem.</div>
       <div class="reason"><b>Segurança:</b> somente demonstração. Nenhuma ordem real é enviada.</div>
     </div>
     ${c.map(x=>`<div class="item">
@@ -335,6 +450,18 @@ function renderDemo(){
         </div>`
         :`<div class="reason"><b>Volume por time:</b> ${esc(x.volume_por_selecao_motivo||'O CSV atual não separa o correspondido por seleção. Conecte a Betfair API para mostrar Hamburgo / empate / adversário separadamente.')}</div>`}
 
+      ${x.forma_recente&&x.forma_recente.disponivel?`
+        <div class="formBox">
+          <b>FORMA RECENTE — ÚLTIMOS 2 JOGOS</b>
+          <div class="row"><span>Time escolhido</span><b>${esc(x.selecao)}</b></div>
+          <div class="row"><span>Momento do time escolhido</span><b class="${formClass((x.forma_time_escolhido||{}).momento)}">${esc((x.forma_time_escolhido||{}).momento||'SEM DADOS')}</b></div>
+          <div class="row"><span>Pontos nas 2 últimas</span><b>${(x.forma_time_escolhido||{}).pontos??'—'}/${(x.forma_time_escolhido||{}).max_pontos??'—'}</b></div>
+          <div class="row"><span>Vantagem recente da dupla</span><b>${esc(x.forma_vantagem||'EQUILIBRADO')}</b></div>
+          <div class="row"><span>Forma recente confirma a entrada?</span><b>${x.forma_confirma_entrada===true?'SIM ✓':(x.forma_confirma_entrada===false?'NÃO':'SEM DADOS')}</b></div>
+          ${oneTeamFormHtml(x.forma_recente.casa)}
+          ${oneTeamFormHtml(x.forma_recente.fora)}
+        </div>`:''}
+
       <div class="row"><span>Índice de triagem MATRIX</span><b>${x.indice_demo}%</b></div>
       <div class="row"><span>Valor DEMO</span><b>${money(x.stake)}</b></div>
       <div class="row"><span>Retorno potencial</span><b class="money">${money(x.retorno_potencial)}</b></div>
@@ -346,7 +473,8 @@ function renderDemo(){
         3. Valor disponível na seleção: ${money(x.valor_na_selecao)}.<br>
         4. Total correspondido neste mercado: ${esc(x.total_correspondido||'—')}.<br>
         5. Minuto aproximado: ${x.minuto}, dentro da janela de entrada.<br>
-        6. Índice de triagem MATRIX: ${x.indice_demo}%.
+        6. Índice de triagem MATRIX: ${x.indice_demo}%.<br>
+        7. Forma recente: ${esc(x.forma_vantagem||'sem dados suficientes')}${x.forma_confirma_entrada===true?' — confirma a seleção':(x.forma_confirma_entrada===false?' — NÃO confirma a seleção':'')}.
       </div>
 
       <div class="reason">${esc(x.motivo)}</div>
@@ -370,11 +498,12 @@ function listForMode(){
   if(mode==='live')return [...(state.betfair_ao_vivo||[]), ...(state.ao_vivo||[])];
   if(mode==='lib')return state.libertadores||[];
   if(mode==='intl')return state.internacionais||[];
+  if(mode==='brasil')return state.brasileiros||[];
   if(mode==='todos')return state.todos||[];
   return state.sinais||[];
 }
 function titleForMode(){
-  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Histórico mensal de apostas DEMO',demo:'AUTO DEMO AO VIVO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager',betfair:'Mercados Betfair / BF Bot Manager'}[mode];
+  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',brasil:'🇧🇷 Jogos do Brasil — nacionais, estaduais e regionais',todos:'Todos os jogos analisados',bets:'Histórico mensal de apostas DEMO',demo:'AUTO DEMO AO VIVO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager',betfair:'Mercados Betfair / BF Bot Manager'}[mode];
 }
 
 function h2hHtml(x){
@@ -395,6 +524,53 @@ function h2hHtml(x){
     </div>
     <div style="margin-top:7px">Tendência H2H: <b>${esc(h.tendencia)}</b></div>
     ${games}
+  </div>`;
+}
+
+
+function formClass(moment){
+  const m=String(moment||'');
+  return (m==='MUITO FORTE'||m==='FORTE')?'formStrong':
+         (m==='MUITO FRACA'||m==='FRACA')?'formWeak':'';
+}
+
+function oneTeamFormHtml(f){
+  if(!f||!f.disponivel){
+    return `<div class="mini">${esc((f&&f.time)||'Time')}<b>SEM DADOS</b></div>`;
+  }
+  const games=(f.ultimos||[]).map(g=>`
+    <div class="formGame">
+      <b>${esc(g.resultado)}</b> • ${esc(g.local)} • ${esc(g.data)}<br>
+      vs ${esc(g.adversario)} • placar ${esc(g.placar)}
+    </div>`).join('');
+  return `<div class="formBox">
+    <div class="row"><strong>${esc(f.time)}</strong><b class="${formClass(f.momento)}">${esc(f.momento)}</b></div>
+    <div class="smallgrid">
+      <div class="mini">Pontos<b>${f.pontos}/${f.max_pontos}</b></div>
+      <div class="mini">Vitórias<b>${f.vitorias}</b></div>
+      <div class="mini">Empates<b>${f.empates}</b></div>
+      <div class="mini">Derrotas<b>${f.derrotas}</b></div>
+      <div class="mini">Gols pró<b>${f.gols_pro}</b></div>
+      <div class="mini">Gols contra<b>${f.gols_contra}</b></div>
+    </div>
+    <div class="row"><span>Força nas últimas rodadas</span><b>${Number(f.forca_pct||0).toFixed(1)}%</b></div>
+    ${games}
+  </div>`;
+}
+
+function recentFormHtml(x){
+  const r=x.forma_recente||{};
+  if(!r.disponivel){
+    return `<div class="h2h"><b>Forma recente — últimos 2 jogos:</b> dados insuficientes para os dois times.</div>`;
+  }
+  return `<div class="h2h">
+    <b>FORMA RECENTE — ÚLTIMOS 2 JOGOS DE CADA TIME</b>
+    <div class="row"><span>Vantagem de momento</span><b>${esc(r.vantagem||'EQUILIBRADO')}</b></div>
+    ${oneTeamFormHtml(r.casa)}
+    ${oneTeamFormHtml(r.fora)}
+    <div class="muted" style="margin-top:8px">
+      Critério: vitória = 3 pontos, empate = 1, derrota = 0. A forma recente é uma confirmação adicional e não garante o resultado da partida.
+    </div>
   </div>`;
 }
 
@@ -453,11 +629,12 @@ function renderGame(x, idx){
       <div class="row"><span>Odd mediana (análise)</span><b>${x.odd}</b></div>
       <div class="row"><span>Melhor odd recebida (análise)</span><b>${x.melhor_odd}</b></div>
       <div class="row"><span>Prob. implícita das odds</span><b>${x.prob_mercado}%</b></div>
-      <div class="row"><span>Índice combinado odds + H2H</span><b>${x.indice_combinado}%</b></div>
+      <div class="row"><span>Índice combinado odds + H2H + forma recente</span><b>${x.indice_combinado}%</b></div>
       <div class="row"><span>Odd BETFAIR para execução</span><b>${x.odd_betfair_ok?Number(x.odd_betfair).toFixed(2):'—'}</b></div>
       <div class="row"><span>Fonte da cotação</span><b>${x.odd_betfair_ok?'BETFAIR':'AGUARDANDO BETFAIR'}</b></div>
-      <div class="muted">Peso do histórico direto: ${x.peso_h2h}%</div>
+      <div class="muted">Peso H2H: ${x.peso_h2h}% • Peso forma recente: ${x.peso_forma_recente||0}%</div>
     `:''}
+    ${recentFormHtml(x)}
     ${h2hHtml(x)}
     <div class="reason"><b>Motivo:</b> ${esc(x.motivo||'—')}</div>
     ${betBox(x,idx)}
@@ -517,6 +694,15 @@ function renderBet(b){
       <div class="row"><span>Total correspondido neste mercado da partida</span><b>${esc(b.total_correspondido)}</b></div>
       <div class="muted">Somente este mercado desta partida; inclui todas as seleções dele e BACK/LAY.</div>`:''}
 
+    ${b.forma_recente&&b.forma_recente.disponivel?`
+      <div class="formBox">
+        <b>FORMA RECENTE REGISTRADA NA ENTRADA</b>
+        <div class="row"><span>Vantagem de momento</span><b>${esc(b.forma_vantagem||'EQUILIBRADO')}</b></div>
+        ${b.forma_time_escolhido?`<div class="row"><span>Momento do time apostado</span><b class="${formClass(b.forma_time_escolhido.momento)}">${esc(b.forma_time_escolhido.momento||'—')}</b></div>`:''}
+        ${oneTeamFormHtml(b.forma_recente.casa)}
+        ${oneTeamFormHtml(b.forma_recente.fora)}
+      </div>`:''}
+
     ${b.auto_demo?`<div class="why">
       <b>POR QUE ESTA ENTRADA FOI FEITA?</b><br>
       ${b.time_favorito_betfair?`• O robô escolheu <b>${esc(b.selecao)}</b>, que era o 1º favorito exibido pela Betfair/BF Bot.<br>`:''}
@@ -525,6 +711,7 @@ function renderBet(b){
       ${b.total_correspondido?`• Total correspondido neste mercado: <b>${esc(b.total_correspondido)}</b>.<br>`:''}
       ${b.minuto_entrada!==undefined?`• Minuto aproximado da entrada: <b>${esc(b.minuto_entrada)}</b>.<br>`:''}
       ${b.indice_demo!==undefined?`• Índice de triagem MATRIX: <b>${esc(b.indice_demo)}%</b>.<br>`:''}
+      ${b.forma_vantagem?`• Forma recente dos últimos 2 jogos: <b>${esc(b.forma_vantagem)}</b>${b.forma_confirma_entrada===true?' (confirmou a entrada)':(b.forma_confirma_entrada===false?' (não confirmou a entrada)':'')}.<br>`:''}
       <span class="warnText">O CSV atual não permite afirmar que esse time recebeu a maior porcentagem do dinheiro correspondido; ele mostra o 1º favorito e o valor disponível na cotação.</span>
     </div>`:''}
 
@@ -961,8 +1148,14 @@ async function refresh(){
     $('intl').textContent=(state.internacionais||[]).length;
     $('odds').textContent=state.jogos_com_odds||0;
     $('signals').textContent=(state.sinais||[]).length;
-    settleDemoBets();
-    autoDemoBets();
+
+    // Primeiro puxa/une o histórico compartilhado para que notebook e celular
+    // trabalhem em cima da MESMA lista.
+    await syncBetsCloud();
+
+    // V3.21: o servidor já abriu/finalizou antes de devolver /api/status.
+    await syncBetsCloud();
+
     $('bets').textContent=getBets().length;
     updateDemoCounters();
     $('error').textContent=state.erro?('Erro: '+state.erro):'';
@@ -994,7 +1187,7 @@ $('go').onclick=async()=>{
 };
 
 updateDemoCounters();
-refresh();
+syncBetsCloud().finally(refresh);
 setInterval(refresh,5000);
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}
 </script>

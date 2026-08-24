@@ -1,7 +1,7 @@
 {
   "name": "MATRIX - FUTEBOL",
   "short_name": "MATRIX FUTEBOL",
-  "start_url": "/?v=3.18",
+  "start_url": "/?v=3.21",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -21,5 +21,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "id": "/matrix-futebol-v321"
 }

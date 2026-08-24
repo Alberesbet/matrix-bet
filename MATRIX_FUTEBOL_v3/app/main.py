@@ -1,4 +1,4 @@
-import os, time, threading, statistics, csv, io, re, unicodedata, math
+import os, time, threading, statistics, csv, io, re, unicodedata, math, json
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -21,6 +21,9 @@ CONFIG = {
     "intervalo": int(os.getenv("MATRIX_INTERVALO", "180")),
     "dias_busca": int(os.getenv("MATRIX_DIAS_BUSCA", "30")),
     "h2h_jogos": int(os.getenv("MATRIX_H2H_JOGOS", "5")),
+    "forma_recente_jogos": int(os.getenv("MATRIX_FORMA_RECENTE_JOGOS", "2")),
+    "forma_recente_dias": int(os.getenv("MATRIX_FORMA_RECENTE_DIAS", "90")),
+    "forma_recente_peso_max": float(os.getenv("MATRIX_FORMA_RECENTE_PESO", "0.20")),
     "modo": "SIMULACAO",
     "bfbot_provider": os.getenv("BFBOT_PROVIDER", "MATRIX"),
     "bfbot_enabled": os.getenv("BFBOT_ENABLED", "true").strip().lower() in ("1","true","yes","sim"),
@@ -55,6 +58,20 @@ CONFIG = {
         "https://api.betfair.com/exchange/betting/json-rpc/v1"
     ).strip(),
     "betfair_runner_volume_ttl": int(os.getenv("BETFAIR_RUNNER_VOLUME_TTL", "15")),
+    "betfair_catalog_sync_seconds": int(os.getenv("BETFAIR_CATALOG_SYNC_SECONDS", "300")),
+    "betfair_catalog_days": int(os.getenv("BETFAIR_CATALOG_DAYS", "7")),
+    "demo_server_engine": os.getenv("MATRIX_DEMO_SERVER_ENGINE", "true").strip().lower() in ("1","true","yes","sim"),
+    "demo_server_tick_seconds": int(os.getenv("MATRIX_DEMO_SERVER_TICK_SECONDS", "12")),
+    "demo_finish_grace_minutes": int(os.getenv("MATRIX_DEMO_FINISH_GRACE_MINUTES", "180")),
+
+    # Histórico DEMO compartilhado entre notebook/celular.
+    # O arquivo é um cache de servidor. Os navegadores também reidratam a nuvem
+    # automaticamente, então os aparelhos convergem mesmo após reinício do serviço.
+    "demo_cloud_file": os.getenv(
+        "MATRIX_DEMO_CLOUD_FILE",
+        "/tmp/matrix_demo_bets_cloud.json"
+    ).strip(),
+
     # Mantido FALSE durante o teste DEMO: mostra a confirmação por volume sem bloquear entradas.
     "demo_require_top_runner_volume": os.getenv(
         "MATRIX_DEMO_REQUIRE_TOP_RUNNER_VOLUME", "false"
@@ -69,11 +86,248 @@ STATE = {
     "jogos_analisados": 0,
     "libertadores": [],
     "internacionais": [],
+    "brasileiros": [],
     "ao_vivo": [],
     "sinais": [],
     "todos": [],
     "erro": None,
 }
+
+
+# ============================================================
+# DEMO CLOUD
+# Histórico compartilhado entre todos os aparelhos que acessam
+# este mesmo serviço MATRIX.
+# ============================================================
+DEMO_CLOUD_LOCK = threading.RLock()
+DEMO_CLOUD_BETS = []
+DEMO_CLOUD_UPDATED_AT = None
+
+
+def _demo_cloud_path():
+    return Path(CONFIG["demo_cloud_file"])
+
+
+def _demo_bet_key(bet):
+    if not isinstance(bet, dict):
+        return None
+
+    demo_key = str(bet.get("demo_key") or "").strip()
+    if demo_key:
+        return "demo:" + demo_key
+
+    market_id = str(bet.get("market_id") or "").strip()
+    selection = str(bet.get("selecao") or "").strip()
+    market_kind = str(bet.get("market_kind") or bet.get("mercado") or "").strip()
+    if market_id and selection:
+        return "market:" + market_id + "|" + _norm_text(selection) + "|" + _norm_text(market_kind)
+
+    bet_id = str(bet.get("id") or "").strip()
+    if bet_id:
+        return "id:" + bet_id
+
+    return None
+
+
+def _demo_status_rank(status):
+    s = str(status or "AGUARDANDO RESULTADO").strip().upper()
+    return {
+        "AGUARDANDO RESULTADO": 1,
+        "ANULADA": 3,
+        "CANCELADA": 4,
+        "GANHOU": 5,
+        "PERDEU": 5,
+    }.get(s, 2)
+
+
+def _demo_merge_one(old, new):
+    old = dict(old or {})
+    new = dict(new or {})
+
+    old_rank = _demo_status_rank(old.get("status"))
+    new_rank = _demo_status_rank(new.get("status"))
+
+    # Resultado liquidado vence versões pendentes/canceladas antigas.
+    if new_rank > old_rank:
+        primary, secondary = new, old
+    elif old_rank > new_rank:
+        primary, secondary = old, new
+    else:
+        # No mesmo status, conserva o registro mais completo.
+        if len(new) >= len(old):
+            primary, secondary = new, old
+        else:
+            primary, secondary = old, new
+
+    merged = dict(secondary)
+    merged.update({k: v for k, v in primary.items() if v is not None and v != ""})
+
+    # Nunca perde informações úteis presentes apenas no outro aparelho.
+    for k, v in secondary.items():
+        if (k not in merged or merged.get(k) in (None, "")) and v not in (None, ""):
+            merged[k] = v
+
+    return merged
+
+
+def _demo_cloud_merge(incoming):
+    global DEMO_CLOUD_BETS, DEMO_CLOUD_UPDATED_AT
+
+    clean = []
+    for b in (incoming or []):
+        if isinstance(b, dict) and _demo_bet_key(b):
+            clean.append(dict(b))
+
+    # Limite defensivo; é mais que suficiente para meses de teste.
+    clean = clean[:10000]
+
+    with DEMO_CLOUD_LOCK:
+        by_key = {}
+
+        for b in DEMO_CLOUD_BETS:
+            k = _demo_bet_key(b)
+            if k:
+                by_key[k] = dict(b)
+
+        for b in clean:
+            k = _demo_bet_key(b)
+            if not k:
+                continue
+            if k in by_key:
+                by_key[k] = _demo_merge_one(by_key[k], b)
+            else:
+                by_key[k] = dict(b)
+
+        merged = list(by_key.values())
+
+        # Mais recentes primeiro quando houver timestamp/id.
+        def sort_key(b):
+            try:
+                return int(b.get("id") or 0)
+            except Exception:
+                return 0
+
+        merged.sort(key=sort_key, reverse=True)
+        DEMO_CLOUD_BETS = merged
+        DEMO_CLOUD_UPDATED_AT = agora().isoformat()
+
+        _demo_cloud_save_locked()
+        return [dict(x) for x in DEMO_CLOUD_BETS]
+
+
+def _demo_cloud_save_locked():
+    try:
+        p = _demo_cloud_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "updated_at": DEMO_CLOUD_UPDATED_AT,
+                    "bets": DEMO_CLOUD_BETS,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(p)
+    except Exception:
+        # O sync continua funcionando em memória mesmo se o cache em disco falhar.
+        pass
+
+
+def _demo_cloud_load():
+    global DEMO_CLOUD_BETS, DEMO_CLOUD_UPDATED_AT
+    try:
+        p = _demo_cloud_path()
+        if not p.exists():
+            return
+        data = json.loads(p.read_text(encoding="utf-8"))
+        bets = data.get("bets") if isinstance(data, dict) else []
+        if not isinstance(bets, list):
+            return
+
+        with DEMO_CLOUD_LOCK:
+            DEMO_CLOUD_BETS = [
+                dict(b) for b in bets
+                if isinstance(b, dict) and _demo_bet_key(b)
+            ]
+            DEMO_CLOUD_UPDATED_AT = (
+                data.get("updated_at") if isinstance(data, dict) else None
+            )
+    except Exception:
+        pass
+
+
+def demo_cloud_snapshot():
+    with DEMO_CLOUD_LOCK:
+        bets = [dict(x) for x in DEMO_CLOUD_BETS]
+
+    auto = [
+        b for b in bets
+        if b.get("auto_demo") is True or str(b.get("modo") or "") == "AUTO DEMO"
+    ]
+    pending_auto = [
+        b for b in auto
+        if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+    ]
+    finished_auto = [
+        b for b in auto
+        if str(b.get("status") or "") in ("GANHOU", "PERDEU")
+    ]
+    canceled = [
+        b for b in bets
+        if str(b.get("status") or "") in ("CANCELADA", "ANULADA")
+    ]
+    wins = [b for b in bets if str(b.get("status") or "") == "GANHOU"]
+    losses = [b for b in bets if str(b.get("status") or "") == "PERDEU"]
+
+    pending_events = {
+        str(b.get("event_id") or b.get("fixture_id") or _norm_text(b.get("jogo")))
+        for b in pending_auto
+        if str(b.get("event_id") or b.get("fixture_id") or _norm_text(b.get("jogo")))
+    }
+
+    effective_stake = sum(
+        float(b.get("stake") or 0)
+        for b in bets
+        if str(b.get("status") or "") not in ("CANCELADA", "ANULADA")
+    )
+    canceled_stake = sum(float(b.get("stake") or 0) for b in canceled)
+    open_stake = sum(
+        float(b.get("stake") or 0)
+        for b in bets
+        if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+    )
+    settled_stake = sum(
+        float(b.get("stake") or 0)
+        for b in bets
+        if str(b.get("status") or "") in ("GANHOU", "PERDEU")
+    )
+    movement = sum(float(b.get("stake") or 0) for b in bets)
+
+    return {
+        "ok": True,
+        "bets": bets,
+        "total": len(bets),
+        "auto_demo_total": len(auto),
+        "auto_demo_em_andamento": len(pending_auto),
+        "auto_demo_partidas_em_andamento": len(pending_events),
+        "auto_demo_finalizadas": len(finished_auto),
+        "vitorias": len(wins),
+        "derrotas": len(losses),
+        "canceladas": len(canceled),
+        "pendentes": len(pending_auto),
+        "valor_apostado_efetivo": round(effective_stake, 2),
+        "valor_em_andamento": round(open_stake, 2),
+        "valor_finalizado": round(settled_stake, 2),
+        "valor_cancelado": round(canceled_stake, 2),
+        "movimentacao_registrada": round(movement, 2),
+        "updated_at": DEMO_CLOUD_UPDATED_AT,
+        "sync": "SERVIDOR ÚNICO / CANÔNICO",
+    }
+
 
 BETFAIR_MIRROR = {
     "markets": [],
@@ -103,8 +357,18 @@ LOCK = threading.RLock()
 H2H_CACHE = {}
 H2H_TTL = 12 * 60 * 60
 
+TEAM_FORM_CACHE = {}
+TEAM_FORM_TTL = 2 * 60 * 60
+
 BETFAIR_RUNNER_VOLUME_CACHE = {}
 BETFAIR_RUNNER_VOLUME_LOCK = threading.RLock()
+
+DEMO_SERVER_TICK_LOCK = threading.RLock()
+DEMO_SERVER_LAST_TICK = 0.0
+BETFAIR_CATALOG_LAST_SYNC = 0.0
+BETFAIR_CATALOG_SYNC_LOCK = threading.RLock()
+SPORTMONKS_SETTLE_CACHE = {}
+SPORTMONKS_SETTLE_TTL = 60
 
 
 
@@ -288,6 +552,11 @@ def parse_betfair_markets_csv(text):
         if matrix:
             item.update({
                 "fixture_id": matrix.get("fixture_id"),
+                "casa": matrix.get("casa"),
+                "fora": matrix.get("fora"),
+                "casa_id": matrix.get("casa_id"),
+                "fora_id": matrix.get("fora_id"),
+                "forma_recente": matrix.get("forma_recente"),
                 "matrix_status": matrix.get("status"),
                 "matrix_live": bool(matrix.get("ao_vivo")),
                 "placar": matrix.get("placar"),
@@ -450,6 +719,11 @@ def parse_betfair_visible_csv(text):
         if matrix:
             item.update({
                 "fixture_id": matrix.get("fixture_id"),
+                "casa": matrix.get("casa"),
+                "fora": matrix.get("fora"),
+                "casa_id": matrix.get("casa_id"),
+                "fora_id": matrix.get("fora_id"),
+                "forma_recente": matrix.get("forma_recente"),
                 "matrix_status": matrix.get("status"),
                 "matrix_live": bool(matrix.get("ao_vivo")),
                 "liga": matrix.get("liga"),
@@ -869,7 +1143,59 @@ def betfair_live_markets(markets=None):
     return list(by_event.values())
 
 
+
+def betfair_api_live_snapshot():
+    if not _betfair_api_ready():
+        return []
+
+    with LOCK:
+        markets = [
+            dict(x) for x in (BETFAIR_MIRROR.get("markets") or [])
+            if str(x.get("market_id") or "") and _market_is_match_odds(x)
+        ]
+
+    ids = [str(x.get("market_id")) for x in markets[:200]]
+    books = betfair_market_results(ids)
+    by_id = {str(x.get("market_id")): x for x in markets}
+    out = []
+
+    for mid, book in books.items():
+        if not book.get("ok") or not book.get("inplay"):
+            continue
+
+        m = by_id.get(mid) or {}
+        dt = _flex_start_dt(m.get("start_time"))
+        elapsed = max(0, int((agora() - dt).total_seconds() // 60)) if dt else None
+
+        out.append({
+            "fixture_id": m.get("fixture_id"),
+            "jogo": m.get("event_name") or "-",
+            "casa": m.get("casa"),
+            "fora": m.get("fora"),
+            "liga": m.get("competition") or m.get("liga") or "Betfair",
+            "pais": m.get("country_code") or m.get("pais"),
+            "horario": m.get("start_time"),
+            "ao_vivo": True,
+            "status": "AO VIVO CONFIRMADO",
+            "tempo_jogo": f"~{elapsed} min" if elapsed is not None else None,
+            "market_id": mid,
+            "event_id": m.get("event_id"),
+            "market_name": m.get("market_name"),
+            "live_source": "BETFAIR_API_CONFIRMADO",
+            "dados_visiveis_frescos": True,
+            "total_matched": book.get("total_matched"),
+            "linkado_marketid": True,
+            "linkado_matrix": bool(m.get("linkado_matrix")),
+        })
+
+    return out
+
+
 def betfair_live_payload():
+    api_live = betfair_api_live_snapshot()
+    if api_live:
+        return api_live
+
     live = betfair_live_markets()
     items = []
     for m in live:
@@ -1009,11 +1335,36 @@ def demo_live_candidates():
 
         implied = round(100.0 / odd, 1)
 
+        forma_recente = row.get("forma_recente") or {}
+        forma_selecao = None
+        forma_confirmada = None
+        forma_vantagem = forma_recente.get("vantagem")
+
+        if forma_recente.get("disponivel"):
+            if _norm_text(selection) == _norm_text(row.get("casa")):
+                forma_selecao = (forma_recente.get("casa") or {})
+            elif _norm_text(selection) == _norm_text(row.get("fora")):
+                forma_selecao = (forma_recente.get("fora") or {})
+
+            if forma_vantagem and forma_vantagem != "EQUILIBRADO":
+                forma_confirmada = _norm_text(selection) == _norm_text(forma_vantagem)
+            elif forma_vantagem == "EQUILIBRADO":
+                forma_confirmada = True
+
         # Peso extra para seleção que possui maior valor visível no próprio nome/linha.
         # É um índice de triagem, não probabilidade real.
         selection_value_score = min(20.0, max(0.0, math.log10(max(selection_value, 1)) * 5.0))
         liquidity_score = min(15.0, max(0.0, math.log10(max(market_liquidity, 1)) * 3.0))
-        demo_score = round(min(99.0, implied * 0.70 + selection_value_score + liquidity_score), 1)
+        form_bonus = 0.0
+        if forma_selecao and forma_selecao.get("disponivel"):
+            # No máximo +5 pontos no índice DEMO. Forma recente é confirmação,
+            # não substitui odd/liquidez.
+            form_bonus = min(5.0, float(forma_selecao.get("forca_pct") or 0) * 0.05)
+
+        demo_score = round(
+            min(99.0, implied * 0.70 + selection_value_score + liquidity_score + form_bonus),
+            1
+        )
 
         stake = float(CONFIG["demo_stake"])
         retorno = round(stake * odd, 2)
@@ -1024,6 +1375,10 @@ def demo_live_candidates():
             "event_key": str(row.get("event_id") or _norm_text(row.get("event_name"))),
             "event_id": row.get("event_id"),
             "market_id": market_id,
+            "fixture_id": row.get("fixture_id"),
+            "casa": row.get("casa"),
+            "fora": row.get("fora"),
+            "liga": row.get("liga") or "Betfair",
             "jogo": row.get("event_name"),
             "mercado": row.get("market_name"),
             "market_kind": kind,
@@ -1041,6 +1396,10 @@ def demo_live_candidates():
             "liquidez": market_liquidity,
             "prob_implicita": implied,
             "indice_demo": demo_score,
+            "forma_recente": forma_recente,
+            "forma_time_escolhido": forma_selecao,
+            "forma_vantagem": forma_vantagem,
+            "forma_confirma_entrada": forma_confirmada,
             "time_favorito_betfair": selection,
             "confirmacao_favorito": True,
             "valor_minimo_selecao": CONFIG["demo_min_selection_value"],
@@ -1059,7 +1418,8 @@ def demo_live_candidates():
                 f"{CONFIG['demo_odd_max']:.2f}; valor disponível na seleção "
                 f"{selection_value:.2f} >= {CONFIG['demo_min_selection_value']:.2f}; "
                 f"total correspondido do mercado {row.get('total_matched') or '-'} "
-                f">= mínimo configurado."
+                f">= mínimo configurado; "
+                f"forma recente: {forma_vantagem or 'sem dados suficientes'}."
             ),
         })
 
@@ -1158,6 +1518,221 @@ def _runner_volume_cache_set(market_id, value):
         }
 
 
+
+def _iso_utc(dt):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=TZ)
+    return dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def betfair_catalogue_auto_sync(force=False):
+    """
+    Futebol Betfair sem filtro de país.
+    Quando a API estiver configurada, inclui mercados brasileiros,
+    estaduais/regionais quando existirem na Exchange.
+    """
+    global BETFAIR_CATALOG_LAST_SYNC
+
+    if not _betfair_api_ready():
+        return {
+            "ok": False,
+            "ativo": False,
+            "motivo": "BETFAIR_APP_KEY / BETFAIR_SESSION_TOKEN não configurados.",
+        }
+
+    now_ts = time.time()
+    with BETFAIR_CATALOG_SYNC_LOCK:
+        if (
+            not force
+            and BETFAIR_CATALOG_LAST_SYNC
+            and now_ts - BETFAIR_CATALOG_LAST_SYNC < CONFIG["betfair_catalog_sync_seconds"]
+        ):
+            with LOCK:
+                count = len(BETFAIR_MIRROR.get("markets") or [])
+            return {"ok": True, "ativo": True, "mercados": count, "cache": True}
+
+        start = agora() - timedelta(hours=4)
+        end = agora() + timedelta(days=CONFIG["betfair_catalog_days"])
+
+        try:
+            result = _betfair_api_rpc(
+                "listMarketCatalogue",
+                {
+                    "filter": {
+                        "eventTypeIds": ["1"],
+                        "marketTypeCodes": [
+                            "MATCH_ODDS",
+                            "OVER_UNDER_15",
+                            "OVER_UNDER_25",
+                            "BOTH_TEAMS_TO_SCORE",
+                        ],
+                        "marketStartTime": {
+                            "from": _iso_utc(start),
+                            "to": _iso_utc(end),
+                        },
+                    },
+                    "marketProjection": [
+                        "EVENT",
+                        "COMPETITION",
+                        "MARKET_START_TIME",
+                        "RUNNER_DESCRIPTION",
+                    ],
+                    "sort": "FIRST_TO_START",
+                    "maxResults": "1000",
+                },
+            )
+
+            api_markets = []
+            for m in result:
+                event = m.get("event") or {}
+                comp = m.get("competition") or {}
+                runners = [{
+                    "selection_id": str(rr.get("selectionId") or ""),
+                    "selection": rr.get("runnerName"),
+                    "handicap": rr.get("handicap"),
+                } for rr in (m.get("runners") or [])]
+
+                api_markets.append({
+                    "event_name": event.get("name") or "-",
+                    "event_id": str(event.get("id") or ""),
+                    "market_name": m.get("marketName") or "Mercado Betfair",
+                    "market_id": str(m.get("marketId") or ""),
+                    "start_time": m.get("marketStartTime"),
+                    "total_matched": m.get("totalMatched"),
+                    "total_matched_num": float(m.get("totalMatched") or 0),
+                    "status": "API_CATALOG",
+                    "in_play": False,
+                    "competition": comp.get("name"),
+                    "competition_id": comp.get("id"),
+                    "country_code": event.get("countryCode"),
+                    "timezone": event.get("timezone"),
+                    "venue": event.get("venue"),
+                    "runners_catalog": runners,
+                    "source": "BETFAIR_API",
+                    "linkado_marketid": True,
+                })
+
+            with LOCK:
+                current = list(BETFAIR_MIRROR.get("markets") or [])
+                by_id = {
+                    str(x.get("market_id") or ""): dict(x)
+                    for x in current
+                    if str(x.get("market_id") or "")
+                }
+                for x in api_markets:
+                    mid = str(x.get("market_id") or "")
+                    old = by_id.get(mid, {})
+                    merged = dict(x)
+                    # preserva campos enriquecidos do CSV, se existirem
+                    for k, v in old.items():
+                        if v not in (None, "", [], {}):
+                            merged[k] = v
+                    merged["market_id"] = mid
+                    merged["event_id"] = x.get("event_id") or merged.get("event_id")
+                    merged["source_catalog"] = "BETFAIR_API"
+                    by_id[mid] = merged
+
+                BETFAIR_MIRROR["markets"] = list(by_id.values())
+                BETFAIR_MIRROR["updated_at"] = agora().isoformat()
+                BETFAIR_MIRROR["filename"] = "BETFAIR_API + CSV"
+                BETFAIR_MIRROR["rows_received"] = len(by_id)
+                BETFAIR_MIRROR["error"] = None
+
+            BETFAIR_CATALOG_LAST_SYNC = time.time()
+            return {
+                "ok": True,
+                "ativo": True,
+                "mercados_api": len(api_markets),
+                "mercados_total": len(by_id),
+                "janela_dias": CONFIG["betfair_catalog_days"],
+                "sem_filtro_pais": True,
+            }
+        except Exception as e:
+            with LOCK:
+                BETFAIR_MIRROR["error"] = f"Betfair API catálogo: {e}"
+            return {"ok": False, "ativo": True, "erro": str(e)}
+
+
+def betfair_market_results(market_ids):
+    """
+    market.status CLOSED + runner.status WINNER/LOSER.
+    É a fonte principal para encerrar apostas DEMO quando a API está conectada.
+    """
+    ids = [str(x).strip() for x in market_ids if str(x).strip()]
+    ids = list(dict.fromkeys(ids))
+    if not ids or not _betfair_api_ready():
+        return {}
+
+    out = {}
+    for pos in range(0, len(ids), 20):
+        batch = ids[pos:pos+20]
+        try:
+            catalogue = _betfair_api_rpc(
+                "listMarketCatalogue",
+                {
+                    "filter": {"marketIds": batch},
+                    "marketProjection": ["RUNNER_DESCRIPTION", "EVENT"],
+                    "maxResults": str(len(batch)),
+                },
+            )
+            names = {}
+            for m in catalogue:
+                mid = str(m.get("marketId") or "")
+                names[mid] = {
+                    str(r.get("selectionId")): r.get("runnerName")
+                    for r in (m.get("runners") or [])
+                }
+
+            books = _betfair_api_rpc("listMarketBook", {"marketIds": batch})
+            returned = set()
+
+            for book in books:
+                mid = str(book.get("marketId") or "")
+                returned.add(mid)
+                runners, winners = [], []
+                for rr in (book.get("runners") or []):
+                    sid = str(rr.get("selectionId") or "")
+                    nm = names.get(mid, {}).get(sid) or sid
+                    st = str(rr.get("status") or "").upper()
+                    runners.append({
+                        "selection_id": sid,
+                        "selection": nm,
+                        "status": st,
+                        "total_matched": float(rr.get("totalMatched") or 0),
+                    })
+                    if st == "WINNER":
+                        winners.append(nm)
+
+                out[mid] = {
+                    "ok": True,
+                    "market_id": mid,
+                    "status": str(book.get("status") or "").upper(),
+                    "inplay": bool(book.get("inplay")),
+                    "total_matched": float(book.get("totalMatched") or 0),
+                    "winners": winners,
+                    "runners": runners,
+                    "source": "BETFAIR_API",
+                }
+
+            for mid in batch:
+                if mid not in returned:
+                    out[mid] = {
+                        "ok": False,
+                        "market_id": mid,
+                        "source": "BETFAIR_API",
+                        "reason": "Mercado não retornado.",
+                    }
+        except Exception as e:
+            for mid in batch:
+                out[mid] = {
+                    "ok": False,
+                    "market_id": mid,
+                    "source": "BETFAIR_API",
+                    "reason": str(e),
+                }
+    return out
+
+
 def betfair_runner_volumes(market_ids):
     """
     Volume correspondido POR seleção/runner via API oficial Betfair.
@@ -1241,6 +1816,7 @@ def betfair_runner_volumes(market_ids):
                     runner_rows.append({
                         "selection_id": sid,
                         "selection": names.get(mid, {}).get(sid) or sid,
+                        "status": str(rr.get("status") or "").upper(),
                         "total_matched": float(rr.get("totalMatched") or 0),
                         "last_price_traded": rr.get("lastPriceTraded"),
                         "best_back_price": (backs[0].get("price") if backs else None),
@@ -1256,6 +1832,7 @@ def betfair_runner_volumes(market_ids):
                     "source": "BETFAIR_API",
                     "market_id": mid,
                     "market_total_matched": float(book.get("totalMatched") or 0),
+                    "market_status": str(book.get("status") or "").upper(),
                     "inplay": bool(book.get("inplay")),
                     "runners": runner_rows,
                     "top_runner": (runner_rows[0] if runner_rows else None),
@@ -1314,6 +1891,350 @@ def enrich_demo_candidates_with_runner_volume(candidates):
         )
 
     return candidates
+
+
+
+def _fixture_finished_state(f):
+    st = f.get("state") or {}
+    raw = " ".join([
+        str(st.get("short_name") or ""),
+        str(st.get("name") or ""),
+        str(st.get("state") or ""),
+        str(st.get("developer_name") or ""),
+    ])
+    n = _norm_text(raw)
+    terms = (
+        "ft", "finished", "full time", "after extra time",
+        "aet", "after penalties", "pen", "ended", "finalizado"
+    )
+    return any(t == n or t in n for t in terms)
+
+
+def _sportmonks_fixture_final(fixture_id):
+    fid = str(fixture_id or "").strip()
+    if not fid:
+        return None
+
+    cached = SPORTMONKS_SETTLE_CACHE.get(fid)
+    if cached and time.time() - cached["ts"] < SPORTMONKS_SETTLE_TTL:
+        return cached["data"]
+
+    try:
+        payload = api_get(
+            f"/fixtures/{fid}",
+            {"include": "participants;scores;state"},
+        )
+        f = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(f, dict):
+            return None
+
+        home, away = participants(f)
+        scores = h2h_score_by_team(f)
+        data = {
+            "fixture_id": fid,
+            "finished": _fixture_finished_state(f),
+            "home": home.get("name"),
+            "away": away.get("name"),
+            "home_goals": scores.get(home.get("id")),
+            "away_goals": scores.get(away.get("id")),
+            "state": state_text(f),
+            "source": "SPORTMONKS",
+        }
+        SPORTMONKS_SETTLE_CACHE[fid] = {"ts": time.time(), "data": data}
+        return data
+    except Exception:
+        return None
+
+
+def _selection_won_from_score(bet, final):
+    if not final or not final.get("finished"):
+        return None
+
+    hg, ag = final.get("home_goals"), final.get("away_goals")
+    if hg is None or ag is None:
+        return None
+
+    kind = str(bet.get("market_kind") or "").upper()
+    selection = _norm_text(bet.get("selecao"))
+    home = _norm_text(final.get("home"))
+    away = _norm_text(final.get("away"))
+
+    if kind == "MATCH_ODDS":
+        winner = home if hg > ag else (away if ag > hg else "empate")
+        return (
+            selection == winner
+            or selection in winner
+            or winner in selection
+            or (winner == "empate" and selection in ("draw", "the draw", "empate"))
+        )
+
+    total = int(hg) + int(ag)
+
+    if kind == "OVER_UNDER_15":
+        over = total >= 2
+        if "mais" in selection or "over" in selection:
+            return over
+        if "menos" in selection or "under" in selection:
+            return not over
+
+    if kind == "OVER_UNDER_25":
+        over = total >= 3
+        if "mais" in selection or "over" in selection:
+            return over
+        if "menos" in selection or "under" in selection:
+            return not over
+
+    if kind == "BOTH_TEAMS_SCORE":
+        yes = hg > 0 and ag > 0
+        if selection in ("sim", "yes"):
+            return yes
+        if selection in ("nao", "no"):
+            return not yes
+
+    return None
+
+
+def _settle_bet_object(b, won, source, result_text=None):
+    stake = float(b.get("stake") or 0)
+    odd = float(b.get("odd") or 0)
+
+    b["status"] = "GANHOU" if won else "PERDEU"
+    b["status_operacional"] = "FINALIZADA"
+    b["finalizada_em"] = agora().strftime("%d/%m/%Y %H:%M:%S")
+    b["fonte_finalizacao"] = source
+    b["resultado_confirmado"] = result_text or source
+
+    if won:
+        b["retorno_real"] = round(stake * odd, 2)
+        b["lucro_real"] = round(b["retorno_real"] - stake, 2)
+    else:
+        b["retorno_real"] = 0.0
+        b["lucro_real"] = round(-stake, 2)
+
+    return b
+
+
+def demo_server_settle_pending():
+    with DEMO_CLOUD_LOCK:
+        bets = [dict(x) for x in DEMO_CLOUD_BETS]
+
+    pending = [
+        b for b in bets
+        if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+    ]
+    if not pending:
+        return {"alteradas": 0, "pendentes": 0}
+
+    market_ids = [
+        str(b.get("market_id") or "")
+        for b in pending
+        if str(b.get("market_id") or "")
+    ]
+    bf_results = betfair_market_results(market_ids) if _betfair_api_ready() else {}
+    csv_results = {
+        str(r.get("market_id") or ""): r
+        for r in demo_result_rows()
+        if str(r.get("market_id") or "")
+    }
+
+    changed = 0
+    by_key = {_demo_bet_key(b): b for b in bets if _demo_bet_key(b)}
+
+    for bet in pending:
+        key = _demo_bet_key(bet)
+        if not key or key not in by_key:
+            continue
+        b = by_key[key]
+        mid = str(b.get("market_id") or "")
+
+        # 1) Betfair API
+        api = bf_results.get(mid) or {}
+        if api.get("ok") and api.get("status") == "CLOSED":
+            winners = api.get("winners") or []
+            if winners:
+                sel = _norm_text(b.get("selecao"))
+                won = any(
+                    sel == _norm_text(w)
+                    or sel in _norm_text(w)
+                    or _norm_text(w) in sel
+                    for w in winners
+                )
+                _settle_bet_object(
+                    b, won, "BETFAIR_API",
+                    "Vencedor(es): " + ", ".join(winners)
+                )
+                changed += 1
+                continue
+
+        # 2) CSV BF Bot
+        csvr = csv_results.get(mid)
+        if csvr and csvr.get("winners"):
+            winner = _norm_text(csvr.get("winners"))
+            sel = _norm_text(b.get("selecao"))
+            if winner and sel:
+                won = (winner in sel or sel in winner)
+                _settle_bet_object(b, won, "BFBOT_CSV", str(csvr.get("winners")))
+                changed += 1
+                continue
+
+        # 3) SportMonks
+        if b.get("fixture_id"):
+            final = _sportmonks_fixture_final(b.get("fixture_id"))
+            won = _selection_won_from_score(b, final)
+            if won is not None:
+                score = f"{final.get('home_goals')} x {final.get('away_goals')}"
+                _settle_bet_object(b, bool(won), "SPORTMONKS", score)
+                changed += 1
+                continue
+
+        # Não deixa uma partida antiga parecer "ao vivo" indefinidamente.
+        dt = _flex_start_dt(b.get("horario") or b.get("start_time"))
+        if dt:
+            elapsed = (agora() - dt).total_seconds() / 60.0
+            if elapsed > CONFIG["demo_finish_grace_minutes"]:
+                b["status_operacional"] = "AGUARDANDO CONFIRMAÇÃO FINAL"
+                b["provavelmente_encerrada"] = True
+
+    with DEMO_CLOUD_LOCK:
+        DEMO_CLOUD_BETS[:] = list(by_key.values())
+        globals()["DEMO_CLOUD_UPDATED_AT"] = agora().isoformat()
+        _demo_cloud_save_locked()
+
+    return {
+        "alteradas": changed,
+        "pendentes": sum(
+            1 for b in by_key.values()
+            if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+        ),
+    }
+
+
+
+def _demo_server_available_bank(bets):
+    initial = float(CONFIG["demo_bank"])
+    realized = 0.0
+    locked = 0.0
+    for b in bets:
+        stake = float(b.get("stake") or 0)
+        st = str(b.get("status") or "AGUARDANDO RESULTADO")
+        if st == "GANHOU":
+            realized += float(b.get("lucro_real") or 0)
+        elif st == "PERDEU":
+            realized -= stake
+        elif st in ("CANCELADA", "ANULADA"):
+            pass
+        else:
+            locked += stake
+    return initial + realized - locked
+
+
+def demo_server_open_candidates(candidates):
+    if not CONFIG["demo_server_engine"] or not CONFIG["demo_auto_enabled"]:
+        return {"criadas": 0}
+
+    with DEMO_CLOUD_LOCK:
+        bets = [dict(x) for x in DEMO_CLOUD_BETS]
+
+    existing = {
+        str(b.get("demo_key") or "")
+        for b in bets if str(b.get("demo_key") or "")
+    }
+    pending = sum(
+        1 for b in bets
+        if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+    )
+    available = _demo_server_available_bank(bets)
+    created = 0
+
+    for c in (candidates or []):
+        if pending >= int(CONFIG["demo_max_open"]):
+            break
+
+        key = str(c.get("demo_key") or "")
+        if not key or key in existing:
+            continue
+
+        stake = float(c.get("stake") or CONFIG["demo_stake"])
+        odd = float(c.get("odd") or 0)
+        if odd <= 1 or available < stake:
+            continue
+
+        retorno = round(stake * odd, 2)
+        bet = {
+            "id": int(time.time() * 1000) + created,
+            "demo_key": key,
+            "auto_demo": True,
+            "modo": "AUTO DEMO",
+            "origem_registro": "SERVIDOR MATRIX",
+            "market_id": c.get("market_id"),
+            "event_id": c.get("event_id"),
+            "fixture_id": c.get("fixture_id"),
+            "jogo": c.get("jogo"),
+            "casa": c.get("casa"),
+            "fora": c.get("fora"),
+            "liga": c.get("liga") or "Betfair AO VIVO",
+            "horario": c.get("start_time") or "",
+            "minuto": c.get("minuto"),
+            "mercado": c.get("mercado"),
+            "market_kind": c.get("market_kind"),
+            "selecao": c.get("selecao"),
+            "stake": round(stake, 2),
+            "odd": round(odd, 2),
+            "fonte_odd": "BETFAIR",
+            "valor_na_selecao": float(c.get("valor_na_selecao") or 0),
+            "total_correspondido": c.get("total_correspondido"),
+            "indice_demo": c.get("indice_demo"),
+            "forma_recente": c.get("forma_recente"),
+            "forma_time_escolhido": c.get("forma_time_escolhido"),
+            "forma_vantagem": c.get("forma_vantagem"),
+            "forma_confirma_entrada": c.get("forma_confirma_entrada"),
+            "prob_implicita": c.get("prob_implicita"),
+            "time_favorito_betfair": c.get("time_favorito_betfair") or c.get("selecao"),
+            "confirmacao_favorito": bool(c.get("confirmacao_favorito")),
+            "retorno": retorno,
+            "lucro": round(retorno - stake, 2),
+            "motivo": c.get("motivo"),
+            "status": "AGUARDANDO RESULTADO",
+            "status_operacional": "EM ANDAMENTO",
+            "criada_em": agora().strftime("%d/%m/%Y %H:%M:%S"),
+        }
+        bets.append(bet)
+        existing.add(key)
+        available -= stake
+        pending += 1
+        created += 1
+
+    if created:
+        _demo_cloud_merge(bets)
+    return {"criadas": created}
+
+
+def demo_server_tick(force=False):
+    global DEMO_SERVER_LAST_TICK
+
+    if not CONFIG["demo_server_engine"]:
+        return {"ativo": False}
+
+    now_ts = time.time()
+    with DEMO_SERVER_TICK_LOCK:
+        if (
+            not force and DEMO_SERVER_LAST_TICK
+            and now_ts - DEMO_SERVER_LAST_TICK < CONFIG["demo_server_tick_seconds"]
+        ):
+            return {"ativo": True, "cache": True}
+
+        catalog = betfair_catalogue_auto_sync(force=False)
+        settled = demo_server_settle_pending()
+        snap = demo_auto_snapshot()
+        opened = demo_server_open_candidates(snap.get("candidatos") or [])
+
+        DEMO_SERVER_LAST_TICK = time.time()
+        return {
+            "ativo": True,
+            "catalogo": catalog,
+            "finalizacao": settled,
+            "abertura": opened,
+        }
 
 
 def demo_auto_snapshot():
@@ -1520,7 +2441,9 @@ def is_brazilian(f):
         "brasileir", "série a", "serie a", "série b", "serie b",
         "copa do brasil", "paulista", "carioca", "mineiro",
         "gaúcho", "gaucho", "paranaense", "baiano", "pernambucano",
-        "cearense", "catarinense", "goiano"
+        "cearense", "catarinense", "goiano", "alagoano", "paraibano",
+        "potiguar", "sergipano", "capixaba", "amazonense", "paraense",
+        "pernambuco", "pernambucano", "copa do nordeste"
     )
     return any(t in name for t in terms)
 
@@ -1739,6 +2662,215 @@ def h2h_score_by_team(f):
     return by_team
 
 
+
+def _forma_label(points, games):
+    if games <= 0:
+        return "SEM DADOS"
+    max_points = games * 3
+    ratio = points / max_points if max_points else 0
+    if ratio >= 0.84:
+        return "MUITO FORTE"
+    if ratio >= 0.60:
+        return "FORTE"
+    if ratio >= 0.40:
+        return "REGULAR"
+    if ratio > 0:
+        return "FRACA"
+    return "MUITO FRACA"
+
+
+def team_recent_form(team_id, team_name, before_dt=None):
+    """
+    Últimos jogos do time, independentemente do adversário.
+    Usa o endpoint SportMonks:
+      /fixtures/between/{start_date}/{end_date}/{team_id}
+
+    A força recente é transparente:
+      vitória = 3 pontos
+      empate  = 1 ponto
+      derrota = 0 ponto
+    """
+    if not team_id:
+        return {
+            "disponivel": False,
+            "time": team_name,
+            "jogos": 0,
+            "ultimos": [],
+            "motivo": "ID do time não disponível.",
+        }
+
+    reference = before_dt or agora()
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=TZ)
+
+    cache_key = (int(team_id), reference.strftime("%Y-%m-%d"))
+    cached = TEAM_FORM_CACHE.get(cache_key)
+    if cached and time.time() - cached["ts"] < TEAM_FORM_TTL:
+        return cached["data"]
+
+    end_dt = reference - timedelta(seconds=1)
+    start_dt = end_dt - timedelta(days=CONFIG["forma_recente_dias"])
+
+    try:
+        rows = get_pages(
+            f"/fixtures/between/{start_dt.strftime('%Y-%m-%d')}/{end_dt.strftime('%Y-%m-%d')}/{team_id}",
+            {"include": "participants;scores;state;league"},
+            max_pages=3,
+        )
+    except Exception as e:
+        data = {
+            "disponivel": False,
+            "time": team_name,
+            "jogos": 0,
+            "ultimos": [],
+            "motivo": str(e),
+        }
+        TEAM_FORM_CACHE[cache_key] = {"ts": time.time(), "data": data}
+        return data
+
+    def sort_key(f):
+        dt = parse_dt(f.get("starting_at"))
+        return dt.timestamp() if dt else 0
+
+    rows = sorted(rows, key=sort_key, reverse=True)
+    last = []
+
+    for f in rows:
+        dt = parse_dt(f.get("starting_at"))
+        if dt and dt >= reference:
+            continue
+
+        home, away = participants(f)
+        scores = h2h_score_by_team(f)
+
+        if team_id not in scores:
+            continue
+
+        is_home = home.get("id") == team_id
+        opp = away if is_home else home
+        opp_id = opp.get("id")
+        if not opp_id or opp_id not in scores:
+            continue
+
+        gf = int(scores.get(team_id, 0))
+        ga = int(scores.get(opp_id, 0))
+
+        if gf > ga:
+            result = "VITÓRIA"
+            points = 3
+        elif gf == ga:
+            result = "EMPATE"
+            points = 1
+        else:
+            result = "DERROTA"
+            points = 0
+
+        last.append({
+            "data": dt.strftime("%d/%m/%Y") if dt else "-",
+            "adversario": opp.get("name") or "Adversário",
+            "local": "CASA" if is_home else "FORA",
+            "resultado": result,
+            "placar": f"{gf} x {ga}",
+            "gols_pro": gf,
+            "gols_contra": ga,
+            "pontos": points,
+            "liga": league_name(f),
+        })
+
+        if len(last) >= CONFIG["forma_recente_jogos"]:
+            break
+
+    n = len(last)
+    if not n:
+        data = {
+            "disponivel": False,
+            "time": team_name,
+            "jogos": 0,
+            "ultimos": [],
+            "motivo": "Sem jogos anteriores com placar disponíveis no período.",
+        }
+    else:
+        points = sum(x["pontos"] for x in last)
+        wins = sum(1 for x in last if x["resultado"] == "VITÓRIA")
+        draws = sum(1 for x in last if x["resultado"] == "EMPATE")
+        losses = sum(1 for x in last if x["resultado"] == "DERROTA")
+        gf = sum(x["gols_pro"] for x in last)
+        ga = sum(x["gols_contra"] for x in last)
+        strength = round(points / (n * 3) * 100, 1)
+
+        data = {
+            "disponivel": True,
+            "time": team_name,
+            "jogos": n,
+            "pontos": points,
+            "max_pontos": n * 3,
+            "vitorias": wins,
+            "empates": draws,
+            "derrotas": losses,
+            "gols_pro": gf,
+            "gols_contra": ga,
+            "saldo_gols": gf - ga,
+            "forca_pct": strength,
+            "momento": _forma_label(points, n),
+            "ultimos": last,
+            "motivo": None,
+        }
+
+    TEAM_FORM_CACHE[cache_key] = {"ts": time.time(), "data": data}
+    return data
+
+
+def recent_pair_form(home_id, away_id, home_name, away_name, before_dt=None):
+    home_form = team_recent_form(home_id, home_name, before_dt)
+    away_form = team_recent_form(away_id, away_name, before_dt)
+
+    hp = home_form.get("pontos", 0) if home_form.get("disponivel") else 0
+    ap = away_form.get("pontos", 0) if away_form.get("disponivel") else 0
+
+    # Probabilidades relativas da forma, com suavização para não exagerar
+    # apenas dois jogos.
+    home_raw = hp + 1
+    away_raw = ap + 1
+    draw_raw = 2
+    total = home_raw + away_raw + draw_raw
+
+    probs = {
+        "HOME": home_raw / total,
+        "DRAW": draw_raw / total,
+        "AWAY": away_raw / total,
+    }
+
+    both_full = (
+        home_form.get("jogos", 0) >= CONFIG["forma_recente_jogos"]
+        and away_form.get("jogos", 0) >= CONFIG["forma_recente_jogos"]
+    )
+    both_some = home_form.get("jogos", 0) >= 1 and away_form.get("jogos", 0) >= 1
+
+    weight = (
+        CONFIG["forma_recente_peso_max"]
+        if both_full
+        else (CONFIG["forma_recente_peso_max"] / 2 if both_some else 0.0)
+    )
+
+    if hp > ap:
+        vantagem = home_name
+    elif ap > hp:
+        vantagem = away_name
+    else:
+        vantagem = "EQUILIBRADO"
+
+    return {
+        "disponivel": bool(both_some),
+        "casa": home_form,
+        "fora": away_form,
+        "probs": probs,
+        "peso": weight,
+        "vantagem": vantagem,
+        "pontos_casa": hp,
+        "pontos_fora": ap,
+    }
+
+
 def h2h_history(team1_id, team2_id, team1_name, team2_name):
     if not team1_id or not team2_id:
         return {
@@ -1884,6 +3016,13 @@ def base_item(f, live=False):
 
 def analyze_market(f, rows, live=False, odds_error=None):
     item = base_item(f, live)
+
+    fixture_dt = parse_dt(f.get("starting_at")) or agora()
+    forma_recente = recent_pair_form(
+        item["casa_id"], item["fora_id"], item["casa"], item["fora"], fixture_dt
+    )
+    item["forma_recente"] = forma_recente
+
     market = parse_1x2(rows)
 
     if not market:
@@ -1898,16 +3037,37 @@ def analyze_market(f, rows, live=False, odds_error=None):
         item["casa_id"], item["fora_id"], item["casa"], item["fora"]
     )
 
-    # Combina mercado + histórico direto. H2H tem peso menor para não dominar
-    # a análise quando a amostra é pequena.
-    h2h_weight = 0.30 if h2h.get("jogos", 0) >= 3 else (0.15 if h2h.get("jogos", 0) else 0.0)
-    market_weight = 1.0 - h2h_weight
+    # V3.20: combina mercado + H2H + forma recente dos ÚLTIMOS 2 jogos.
+    # A forma recente tem peso máximo de 20% para não exagerar uma amostra curta.
+    recent_weight = float(forma_recente.get("peso") or 0.0)
+
+    h2h_weight = 0.20 if h2h.get("jogos", 0) >= 3 else (0.10 if h2h.get("jogos", 0) else 0.0)
+
+    # Se a forma recente estiver ativa, reduz o peso do H2H antes de tocar
+    # no peso principal do mercado.
+    total_aux = h2h_weight + recent_weight
+    if total_aux > 0.40:
+        scale = 0.40 / total_aux
+        h2h_weight *= scale
+        recent_weight *= scale
+
+    market_weight = 1.0 - h2h_weight - recent_weight
 
     scored = {}
     for key, value in market.items():
         hist_prob = (h2h.get("probs") or {}).get(key, value["market_prob"])
-        combined = market_weight * value["market_prob"] + h2h_weight * hist_prob
-        scored[key] = {**value, "hist_prob": hist_prob, "combined": combined}
+        recent_prob = (forma_recente.get("probs") or {}).get(key, value["market_prob"])
+        combined = (
+            market_weight * value["market_prob"]
+            + h2h_weight * hist_prob
+            + recent_weight * recent_prob
+        )
+        scored[key] = {
+            **value,
+            "hist_prob": hist_prob,
+            "recent_prob": recent_prob,
+            "combined": combined,
+        }
 
     selection, v = max(scored.items(), key=lambda x: x[1]["combined"])
     pick = {
@@ -1941,12 +3101,15 @@ def analyze_market(f, rows, live=False, odds_error=None):
         "prob_mercado": round(v["market_prob"] * 100, 1),
         "indice_combinado": round(v["combined"] * 100, 1),
         "peso_h2h": round(h2h_weight * 100, 0),
+        "peso_forma_recente": round(recent_weight * 100, 0),
+        "prob_forma_recente": round(v["recent_prob"] * 100, 1),
+        "forma_recente": forma_recente,
         "stake_padrao": round(stake, 2),
         "retorno_potencial_padrao": round(potential_return, 2),
         "lucro_potencial_padrao": round(potential_profit, 2),
         "h2h": h2h,
         "status": "APROVADO" if approved else "AGUARDAR",
-        "motivo": "Passou pelos filtros de odds + histórico H2H." if approved else "; ".join(reasons),
+        "motivo": "Passou pelos filtros de odds + H2H + forma recente dos últimos 2 jogos." if approved else "; ".join(reasons),
     })
 
     return item, item if approved else None
@@ -1966,8 +3129,12 @@ def run_analysis():
         with_odds = 0
         analyzed = 0
 
-        # Evita uma explosão de chamadas caso o plano retorne milhares de partidas.
-        futures = futures[:180]
+        # Brasil recebe prioridade para não ser cortado quando houver
+        # muitos jogos internacionais no retorno.
+        all_futures = list(futures)
+        brazil_first = [f for f in all_futures if is_brazilian(f)]
+        others = [f for f in all_futures if not is_brazilian(f)]
+        futures = (brazil_first + others)[:240]
 
         for f in futures:
             if not f.get("has_odds"):
@@ -2006,6 +3173,16 @@ def run_analysis():
 
         libertadores = [x for x in todos if x.get("libertadores")]
         internacionais = [x for x in todos if x.get("internacional")]
+        brasileiros = [
+            x for x in todos
+            if _norm_text(x.get("pais")) in ("brazil", "brasil")
+            or any(t in _norm_text(x.get("liga")) for t in (
+                "brasileir", "copa do brasil", "paulista", "carioca",
+                "mineiro", "gaucho", "paranaense", "baiano", "pernambucano",
+                "pernambuco", "cearense", "catarinense", "goiano",
+                "copa do nordeste", "paraibano", "alagoano", "potiguar"
+            ))
+        ]
 
         with LOCK:
             STATE.update({
@@ -2016,6 +3193,7 @@ def run_analysis():
                 "jogos_analisados": analyzed,
                 "libertadores": libertadores,
                 "internacionais": internacionais,
+                "brasileiros": brasileiros,
                 "ao_vivo": live_items,
                 "sinais": sinais,
                 "todos": todos,
@@ -2296,7 +3474,18 @@ def worker():
 
 @app.on_event("startup")
 def startup():
+    _demo_cloud_load()
     threading.Thread(target=worker, daemon=True).start()
+
+    def demo_engine_loop():
+        while True:
+            try:
+                demo_server_tick(force=False)
+            except Exception:
+                pass
+            time.sleep(max(5, CONFIG["demo_server_tick_seconds"]))
+
+    threading.Thread(target=demo_engine_loop, daemon=True).start()
 
 
 @app.get("/api/status")
@@ -2308,6 +3497,7 @@ def status():
         state_copy["sinais"] = [dict(x) for x in (STATE.get("sinais") or [])]
         state_copy["internacionais"] = [dict(x) for x in (STATE.get("internacionais") or [])]
         state_copy["libertadores"] = [dict(x) for x in (STATE.get("libertadores") or [])]
+        state_copy["brasileiros"] = [dict(x) for x in (STATE.get("brasileiros") or [])]
 
     # Acrescenta a odd BETFAIR aos cards sem substituir os dados de análise.
     enriched_by_fixture = {}
@@ -2323,17 +3513,25 @@ def status():
             if s.get("fixture_id") is not None:
                 enriched_by_fixture[str(s.get("fixture_id"))] = bf
 
+    server_engine = demo_server_tick(force=False)
     tips = bfbot_tips()
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.14 AUTO DEMO + VALOR NA SELECAO + BETFAIR",
+        "versao": "V3.21 SERVIDOR UNICO + FINALIZACAO BETFAIR + BRASIL",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
         "betfair_ao_vivo": betfair_live_payload(),
         "demo_auto": demo_auto_snapshot(),
         "demo_resultados": demo_result_rows(),
+        "demo_cloud": demo_cloud_snapshot(),
+        "demo_server_engine": server_engine,
+        "betfair_api": {
+            "conectada": _betfair_api_ready(),
+            "catalogo_sem_filtro_pais": True,
+            "inclui_brasil_quando_disponivel": True,
+        },
         "bfbot": {
             "habilitado": CONFIG["bfbot_enabled"],
             "provider": CONFIG["bfbot_provider"],
@@ -2353,6 +3551,36 @@ def status():
         },
         **state_copy,
     })
+
+
+
+@app.get("/api/demo-bets")
+def get_demo_bets_cloud():
+    return JSONResponse(demo_cloud_snapshot())
+
+
+@app.post("/api/demo-bets/sync")
+async def sync_demo_bets_cloud(request: Request):
+    """
+    Une o histórico local enviado por notebook/celular ao histórico do servidor
+    e devolve uma lista canônica para TODOS os aparelhos.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    incoming = payload.get("bets") if isinstance(payload, dict) else []
+    if not isinstance(incoming, list):
+        return JSONResponse(
+            {"ok": False, "erro": "Campo bets deve ser uma lista."},
+            status_code=400,
+        )
+
+    merged = _demo_cloud_merge(incoming)
+    snap = demo_cloud_snapshot()
+    snap["bets"] = merged
+    return JSONResponse(snap)
 
 
 @app.post("/api/analisar")
@@ -2524,9 +3752,17 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.12"}
+    return {"ok": True, "versao": "3.21", "servidor_unico": True}
 
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
+    return HTMLResponse(
+        (STATIC / "index.html").read_text(encoding="utf-8"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Matrix-Version": "3.21",
+        },
+    )
