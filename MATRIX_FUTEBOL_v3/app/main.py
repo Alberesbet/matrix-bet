@@ -1037,6 +1037,34 @@ def bfbot_tips():
     return rows
 
 
+
+def bfbot_test_marketid_csv_text():
+    """
+    Diagnostic-only tip for confirming direct MarketId linking in BF Bot Manager.
+    It is intentionally NOT included in the main MATRIX feed.
+    Keep all betting strategies PAUSED while importing this file.
+    """
+    fields = [
+        "Provider", "MarketId", "SelectionName", "EventName",
+        "MarketType", "BetType", "Size", "BSP"
+    ]
+    row = {
+        "Provider": "MATRIX_TESTE_NAO_APOSTAR",
+        "MarketId": "1.261459879",
+        "SelectionName": "Sabah FA",
+        "EventName": "Sabah FA v Imigresen FC",
+        "MarketType": "MATCH_ODDS",
+        "BetType": "BACK",
+        "Size": "0.01",
+        "BSP": "False",
+    }
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    writer.writerow(row)
+    return buf.getvalue()
+
+
 def bfbot_csv_text():
     fields = ["Provider", "Handicap", "SportMonksFixtureId", "SelectionName", "MarketName", "EventName", "MarketType", "StartTime", "BetType", "Size", "Points", "Price", "MinPrice", "MaxPrice", "BSP"]
     buf = io.StringIO()
@@ -1122,7 +1150,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.7 BETFAIR MIRROR + BFBOT + SPORTMONKS",
+        "versao": "V3.8 TESTE MARKETID DIRETO + BETFAIR MIRROR",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -1134,6 +1162,8 @@ def status():
             "bet_type": "BACK",
             "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
             "feed_path": "/bfbot/tips.csv",
+        "test_marketid_path": "/bfbot/test_marketid.csv",
+            "test_marketid_path": "/bfbot/test_marketid.csv",
             "sportmonks_fixture_id": True,
             "csv_direto": True,
             "start_time_utc": True,
@@ -1187,6 +1217,16 @@ def api_account():
 
 
 
+
+@app.get("/bfbot/test_marketid.csv", response_class=PlainTextResponse)
+def bfbot_test_marketid_feed():
+    return PlainTextResponse(
+        bfbot_test_marketid_csv_text(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/bfbot/tips.csv", response_class=PlainTextResponse)
 def bfbot_feed():
     return PlainTextResponse(
@@ -1228,7 +1268,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.7"}
+    return {"ok": True, "versao": "3.8"}
 
 
 @app.get("/", response_class=HTMLResponse)

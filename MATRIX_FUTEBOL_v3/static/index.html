@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.7 • BETFAIR MIRROR • Bf Bot Manager • SportMonks • Betfair TV</div>
+      <div class="sub">V3.8 • Teste MarketId direto • Betfair Mirror • Bf Bot Manager</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -212,8 +212,13 @@ function renderBfBot(){
         <b>URL do arquivo de tips:</b><br>
         <span style="word-break:break-all">${esc(feed)}</span>
       </div>
-      <div style="margin-top:10px">
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
         <a class="btn2" href="${esc(b.feed_path||'/bfbot/tips.csv')}" target="_blank">ABRIR CSV</a>
+        <a class="btn2" href="${esc(b.test_marketid_path||'/bfbot/test_marketid.csv')}" target="_blank">TESTE MARKET ID</a>
+      </div>
+      <div class="reason" style="margin-top:10px">
+        <b>Teste isolado:</b> Sabah FA v Imigresen FC • MarketId 1.261459879 • Seleção Sabah FA.
+        Provider: MATRIX_TESTE_NAO_APOSTAR. Importe apenas para confirmar se o Market ID deixa de ficar 0.
       </div>
       <div class="muted" style="margin-top:10px">
         O feed envia somente sinais pré-jogo APROVADOS. O Bf Bot Manager é quem conecta à conta Betfair e executa a estratégia configurada.
