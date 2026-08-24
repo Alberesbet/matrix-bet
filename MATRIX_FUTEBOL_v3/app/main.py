@@ -1392,7 +1392,7 @@ def betfair_api_live_snapshot():
 
 def betfair_live_payload():
     """
-    V3.27:
+    V3.28 LOGIN BETFAIR + CONECTAR ROBO
     Fonte principal para jogos Betfair AO VIVO é o BF Bot/CSV fresco.
     Um jogo aparece no MATRIX se o BF Bot marcar IP/InPlay=True, mesmo que
     o SportMonks ainda não tenha linkado o fixture.
@@ -4537,6 +4537,16 @@ def worker():
         time.sleep(CONFIG["intervalo"])
 
 
+
+BETFAIR_LOGIN_LOCK = threading.RLock()
+BETFAIR_LOGIN_SESSION = {
+    "connected": False,
+    "username": None,
+    "connected_at": None,
+    "last_error": None,
+    "mode": "READ_ONLY",
+}
+
 @app.on_event("startup")
 def startup():
     _demo_cloud_load()
@@ -4551,6 +4561,124 @@ def startup():
             time.sleep(max(5, CONFIG["demo_server_tick_seconds"]))
 
     threading.Thread(target=demo_engine_loop, daemon=True).start()
+
+
+
+def _betfair_login_config_ready():
+    """
+    Login MATRIX e login Betfair são separados.
+    As credenciais Betfair ficam SOMENTE no ambiente do servidor.
+    """
+    username = os.getenv("BETFAIR_USERNAME", "").strip()
+    password = os.getenv("BETFAIR_PASSWORD", "").strip()
+    app_key = os.getenv("BETFAIR_APP_KEY", "").strip()
+    return bool(username and password and app_key), username, password, app_key
+
+
+def _betfair_login_attempt():
+    ready, username, password, app_key = _betfair_login_config_ready()
+
+    if not ready:
+        msg = "Configure BETFAIR_USERNAME, BETFAIR_PASSWORD e BETFAIR_APP_KEY no servidor."
+        with BETFAIR_LOGIN_LOCK:
+            BETFAIR_LOGIN_SESSION.update({
+                "connected": False,
+                "username": username or None,
+                "connected_at": None,
+                "last_error": msg,
+                "mode": "READ_ONLY",
+            })
+        return False, msg
+
+    try:
+        # A infraestrutura Betfair do projeto é quem efetivamente autentica/valida.
+        # Aqui só expomos um botão claro para ligar/desligar a sessão de leitura.
+        ready_now = False
+        try:
+            ready_now = bool(_betfair_api_ready())
+        except Exception:
+            ready_now = False
+
+        if not ready_now:
+            # Força uma consulta leve, quando disponível, para validar sessão.
+            try:
+                _ = betfair_api_live_snapshot()
+            except Exception:
+                pass
+
+        try:
+            ready_now = bool(_betfair_api_ready())
+        except Exception:
+            ready_now = False
+
+        if not ready_now:
+            raise RuntimeError("A API Betfair ainda não confirmou uma sessão autenticada.")
+
+        with BETFAIR_LOGIN_LOCK:
+            BETFAIR_LOGIN_SESSION.update({
+                "connected": True,
+                "username": username,
+                "connected_at": agora().isoformat(),
+                "last_error": None,
+                "mode": "READ_ONLY",
+            })
+        return True, None
+
+    except Exception as e:
+        with BETFAIR_LOGIN_LOCK:
+            BETFAIR_LOGIN_SESSION.update({
+                "connected": False,
+                "username": username,
+                "connected_at": None,
+                "last_error": str(e),
+                "mode": "READ_ONLY",
+            })
+        return False, str(e)
+
+
+@app.get("/api/betfair/login-status")
+def betfair_login_status():
+    with BETFAIR_LOGIN_LOCK:
+        data = dict(BETFAIR_LOGIN_SESSION)
+
+    ready, username, _, _ = _betfair_login_config_ready()
+    data["credentials_configured"] = ready
+    data["configured_username"] = username or None
+    data["execution_enabled"] = False
+    data["message"] = (
+        "Conta Betfair conectada em modo leitura real."
+        if data.get("connected")
+        else "Conta Betfair ainda não conectada."
+    )
+    return data
+
+
+@app.post("/api/betfair/connect")
+def betfair_connect():
+    ok, err = _betfair_login_attempt()
+    with BETFAIR_LOGIN_LOCK:
+        data = dict(BETFAIR_LOGIN_SESSION)
+    data["ok"] = ok
+    data["execution_enabled"] = False
+    if err:
+        data["erro"] = err
+    return JSONResponse(data, status_code=200 if ok else 400)
+
+
+@app.post("/api/betfair/disconnect")
+def betfair_disconnect():
+    with BETFAIR_LOGIN_LOCK:
+        BETFAIR_LOGIN_SESSION.update({
+            "connected": False,
+            "connected_at": None,
+            "last_error": None,
+            "mode": "READ_ONLY",
+        })
+        data = dict(BETFAIR_LOGIN_SESSION)
+
+    data["ok"] = True
+    data["execution_enabled"] = False
+    return data
 
 
 @app.get("/api/status")
@@ -5028,7 +5156,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.27", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
+    return {"ok": True, "versao": "3.28", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -5039,6 +5167,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.27",
+            "X-Matrix-Version": "3.28",
         },
     )

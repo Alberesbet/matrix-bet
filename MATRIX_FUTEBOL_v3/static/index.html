@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.27">
+<body data-matrix-version="3.28">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.27 • AO VIVO BETFAIR CORRIGIDO • ENTRADAS DESTRAVADAS</div>
+      <div class="sub">V3.28 • LOGIN BETFAIR • CONECTAR ROBÔ • LEITURA REAL</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -77,6 +77,25 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="muted" style="margin-top:5px">
       Jogos marcados como IP/InPlay pelo BF Bot aparecem no MATRIX mesmo sem link SportMonks.
       Apostas antigas aguardando resultado não bloqueiam novas entradas; somente apostas realmente em andamento ocupam as vagas.
+    </div>
+  </div>
+
+  <div class="card" style="margin:12px 0 16px 0;border:1px solid rgba(73,231,164,.55)">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div>
+        <strong style="font-size:16px">CONEXÃO BETFAIR</strong>
+        <div class="muted" style="margin-top:5px">
+          O login da Betfair é separado do login do MATRIX. Mesmo que você use o mesmo e-mail, a senha da Betfair não é copiada pelo MATRIX.
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="betfairConnectBtn" onclick="connectBetfair()">🔌 LIGAR ROBÔ NA BETFAIR</button>
+        <button class="btn secondary" id="betfairDisconnectBtn" onclick="disconnectBetfair()">DESLIGAR</button>
+      </div>
+    </div>
+    <div id="betfairLoginStatus" style="margin-top:10px;font-size:13px;opacity:.9">Verificando conexão...</div>
+    <div class="muted" style="margin-top:6px">
+      V3.28: leitura real de mercados, odds, ao vivo e resultados. Execução com dinheiro real permanece bloqueada nesta fase.
     </div>
   </div>
   <div class="grid">
@@ -1202,6 +1221,71 @@ async function reconcileResults(){
   }
 }
 
+
+async function refreshBetfairLogin(){
+  const box=$('betfairLoginStatus');
+  try{
+    const r=await fetch('/api/betfair/login-status',{cache:'no-store'});
+    const d=await r.json();
+
+    if(!box)return;
+
+    if(d.connected){
+      box.textContent=`🟢 BETFAIR CONECTADA • ${d.configured_username||d.username||''} • LEITURA REAL`;
+    }else if(d.credentials_configured){
+      box.textContent='🟡 Credenciais configuradas. Clique em LIGAR ROBÔ NA BETFAIR.';
+    }else{
+      box.textContent='⚪ Configure BETFAIR_USERNAME, BETFAIR_PASSWORD e BETFAIR_APP_KEY no servidor.';
+    }
+  }catch(e){
+    if(box)box.textContent='🔴 Falha ao consultar conexão Betfair: '+e.message;
+  }
+}
+
+async function connectBetfair(){
+  const btn=$('betfairConnectBtn');
+  const box=$('betfairLoginStatus');
+  try{
+    if(btn){
+      btn.disabled=true;
+      btn.textContent='CONECTANDO...';
+    }
+
+    const r=await fetch('/api/betfair/connect',{
+      method:'POST',
+      cache:'no-store'
+    });
+    const d=await r.json();
+
+    if(!r.ok || !d.ok){
+      throw new Error(d.erro||d.last_error||'Não conectou.');
+    }
+
+    if(box)box.textContent='🟢 BETFAIR CONECTADA • LEITURA REAL';
+    await refresh();
+  }catch(e){
+    if(box)box.textContent='🔴 '+e.message;
+  }finally{
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='🔌 LIGAR ROBÔ NA BETFAIR';
+    }
+  }
+}
+
+async function disconnectBetfair(){
+  const box=$('betfairLoginStatus');
+  try{
+    await fetch('/api/betfair/disconnect',{
+      method:'POST',
+      cache:'no-store'
+    });
+    if(box)box.textContent='⚪ BETFAIR DESCONECTADA';
+  }catch(e){
+    if(box)box.textContent='🔴 '+e.message;
+  }
+}
+
 async function refresh(){
   try{
     const r=await fetch('/api/status',{cache:'no-store'});
@@ -1281,6 +1365,8 @@ updateDemoCounters();
 syncBetsCloud().finally(refresh);
 setInterval(refresh,5000);
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}
+
+refreshBetfairLogin();
 </script>
 </body>
 </html>
