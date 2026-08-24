@@ -175,7 +175,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.7 SPORTMONKS REAL API", version="6.7.0")
+app = FastAPI(title="MATRIX BET V6.7 SPORTMONKS REAL API", version="6.8.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -608,7 +608,7 @@ def real_feed_status(user: User = Depends(get_current_user)):
     return {
         "provider": "Sportmonks",
         "configured": bool(os.getenv("SPORTMONKS_TOKEN", "").strip()),
-        "version": "6.7.0"
+        "version": "6.8.0"
     }
 
 @app.get("/api/real/fixtures")
@@ -665,7 +665,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.7.0",
+        "version": "6.8.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -1483,7 +1483,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.7.0",
+        "version": "6.8.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1505,7 +1505,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.7.0",
+        "version": "6.8.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 

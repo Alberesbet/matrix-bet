@@ -144,6 +144,16 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
   #profileBtn{display:inline-flex;padding:8px 10px;font-size:12px}
 }
 
+
+.realSportsStatus{margin:10px 0;padding:10px 12px;border:1px solid #315a4a;background:#0d2119;border-radius:9px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.realSportsStatus strong{color:#55e5aa}.realSportsStatus .warn{color:#ffc18e}
+.realLeague{margin-top:12px;padding:8px 10px;background:#173d2e;border-left:4px solid #55e5aa;font-weight:900}
+.realFixtureRow{display:grid;grid-template-columns:minmax(210px,1fr) minmax(120px,180px);gap:12px;align-items:center;padding:12px;border-bottom:1px solid #293c35;background:#101a16}
+.realFixtureRow:hover{background:#132019}.realFixtureInfo small{display:block;color:#96a9a1;margin-bottom:5px}
+.realFixtureTeam{display:flex;align-items:center;gap:8px;font-weight:850;margin:5px 0}
+.realFixtureTeam img{width:27px;height:27px;object-fit:contain;border-radius:50%;background:#fff}
+.realFixtureActions{display:flex;justify-content:flex-end}.realFixtureActions button{width:100%;max-width:170px}
+@media(max-width:700px){.realFixtureRow{grid-template-columns:1fr}.realFixtureActions{justify-content:stretch}.realFixtureActions button{max-width:none}}
 </style>
 
 <link rel="manifest" href="/static/manifest.webmanifest">
@@ -398,7 +408,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
 </div>
 
 <script>
-let token=localStorage.getItem('mxv51_token')||'',mode='register',page='home',league='Todos',market='Principais',me=null,events=[],liveEvents=[],slip=[];
+let token=localStorage.getItem('mxv51_token')||'',mode='register',page='home',league='Todos',market='Principais',me=null,events=[],liveEvents=[],realFixtures=[],realFixturesDate='',realFixturesError='',slip=[];
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const money=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 async function api(path,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json'};if(token)opt.headers.Authorization='Bearer '+token;let r=await fetch(path,opt);let j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Erro');return j}
@@ -413,7 +423,29 @@ $('#cpf').addEventListener('input',e=>{
   e.target.value=v;
 });
 
-async function boot(){if(!token){showAuth();return}try{me=await api('/api/me');events=(await api('/api/events')).events;liveEvents=(await api('/api/live')).events;showApp();render()}catch(e){token='';localStorage.removeItem('mxv51_token');showAuth()}}
+async function boot(){
+ if(!token){showAuth();return}
+ try{
+   me=await api('/api/me');
+   events=(await api('/api/events')).events;
+   liveEvents=(await api('/api/live')).events;
+   try{
+     const real=await api('/api/real/fixtures');
+     realFixtures=real.fixtures||[];
+     realFixturesDate=real.date||'';
+     realFixturesError='';
+   }catch(realErr){
+     realFixtures=[];
+     realFixturesError=realErr.message||'Feed Sportmonks indisponível';
+   }
+   showApp();
+   render();
+ }catch(e){
+   token='';
+   localStorage.removeItem('mxv51_token');
+   showAuth();
+ }
+}
 function showAuth(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn');if(a)a.classList.remove('hidden');if(b)b.classList.add('hidden');if(hp)hp.classList.add('hidden')}
 function showApp(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn'),un=$('#userName'),bal=$('#balanceTop');if(a)a.classList.add('hidden');if(b)b.classList.remove('hidden');if(hp)hp.classList.remove('hidden');if(un)un.textContent=me.name;if(bal)bal.textContent=money(me.demo_balance_cents)}
 function nav(p){page=p;$$('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===p);b.classList.toggle('on',b.dataset.page===p)});render();scrollTo(0,0)}
@@ -464,12 +496,42 @@ function book(list){
  ${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>marketEventRow(e,'event')).join('')}`).join('')}</div>`
 }
 function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga','Ligue 1','Primeira Liga','Liga Argentina','MLS'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
-function sports(){let list=events.filter(e=>league==='Todos'||e.league===league);return cards()+`<input class=search id=search placeholder="Buscar futebol..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(list)}`}
-function livePage(){
- let groups={};liveEvents.slice(0,60).forEach(e=>(groups[e.league]??=[]).push(e));
- return cards()+`<div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>
- <div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS • ${market}</div>
- ${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>marketEventRow(e,'liveRow')).join('')}`).join('')}</div>`
+function sportmonksLeagueName(f){
+  return f?.league?.name||'Outras competições';
+}
+function sportmonksTeam(f,side){
+  const t=f?.[side]||{};
+  return `${t.image_path?`<img src="${t.image_path}" alt="">`:''}<span>${t.name||(side==='home'?'Mandante':'Visitante')}</span>`;
+}
+function sports(){
+  const availableLeagues=[...new Set(realFixtures.map(sportmonksLeagueName).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const selectedOk=league==='Todos'||availableLeagues.includes(league);
+  if(!selectedOk)league='Todos';
+  const list=realFixtures.filter(f=>league==='Todos'||sportmonksLeagueName(f)===league);
+  const status=realFixturesError
+    ? `<div class="realSportsStatus"><strong>SPORTMONKS</strong><span class="warn">${realFixturesError}</span></div>`
+    : `<div class="realSportsStatus"><strong>SPORTMONKS • FUTEBOL REAL</strong><span>${realFixturesDate||''} • ${realFixtures.length} jogos recebidos</span></div>`;
+  const leagueButtons=['Todos',...availableLeagues].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('');
+  let grouped={};
+  list.forEach(f=>(grouped[sportmonksLeagueName(f)]??=[]).push(f));
+  const body=realFixturesError
+    ? `<div class=panel><div class=empty>O feed real não pôde ser carregado. O restante do aplicativo continua funcionando.</div></div>`
+    : list.length
+      ? `<div class=panel><div class=head>FUTEBOL REAL <span>${list.length} jogos</span></div>${Object.entries(grouped).map(([lg,arr])=>`
+          <div class=realLeague>${lg}</div>
+          ${arr.map(f=>`<div class="realFixtureRow real-event">
+            <div class=realFixtureInfo>
+              <small>${f.starting_at||''}${f.state?.name?' • '+f.state.name:''}</small>
+              <div class=realFixtureTeam>${sportmonksTeam(f,'home')}</div>
+              <div class=realFixtureTeam>${sportmonksTeam(f,'away')}</div>
+              <small>${f.has_odds?'✓ Odds disponíveis':'Sem odds disponíveis neste feed/plano'}</small>
+            </div>
+            <div class=realFixtureActions>
+              ${f.has_odds?`<button class=moreBtn data-real-odds="${f.id}">VER ODDS REAIS</button>`:`<button class=moreBtn disabled>SEM ODDS</button>`}
+            </div>
+          </div>`).join('')}`).join('')}</div>`
+      : `<div class=panel><div class=empty>Nenhum jogo retornado pela Sportmonks para ${realFixturesDate||'hoje'}.</div></div>`;
+  return cards()+status+`<input class=search id=search placeholder="Buscar jogo, liga ou equipe..."><div class=leagues>${leagueButtons}</div>${body}`;
 }
 async function betsPage(){let j=await api('/api/bets');$('#main').innerHTML=cards()+`<div class=panel><div class=head>MINHAS APOSTAS <span>${j.bets.length}</span></div><div style="padding:12px">${j.bets.length?j.bets.map(b=>`<div class=betcard><b>#${b.id} • ${money(b.stake_cents)}</b><p>Odd total ${b.total_odd.toFixed(2)}</p><small>${b.status} • ${new Date(b.created_at).toLocaleString('pt-BR')}</small></div>`).join(''):'<div class=empty>Nenhuma aposta demo registrada.</div>'}</div></div>`;bindDynamic()}
 function wallet(){return cards()+`<div class=wallet><small>SALDO DEMO DISPONÍVEL</small><strong>${money(me.demo_balance_cents)}</strong><button class="btn primary" id=addBalance>ADICIONAR R$100 DEMO</button></div><div class=panel><div class=head>CARTEIRA</div><div style="padding:18px;color:#97a4a9">Esta carteira é demonstrativa. Nenhum PIX real é processado nesta versão.</div></div>`}
@@ -583,7 +645,19 @@ async function openRealOdds(id){
   }
 }
 
-async function render(){if(page==='home'&&me){$('#main').innerHTML=v63Dashboard();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();loadRealFixtures();return;}if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+async function render(){
+ if(page==='home'&&me){
+   $('#main').innerHTML=v63Dashboard();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();loadRealFixtures();return;
+ }
+ if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}
+ if(!me)return;
+ if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}
+ $('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();
+ $('#right').innerHTML=coupon();
+ bindDynamic();
+ syncMobileCoupon();
+ if(page==='sports')bindRealFootball();
+}
 
 async function openMarkets(eventId){
   try{
@@ -599,6 +673,18 @@ async function openMarkets(eventId){
 }
 if($('#marketClose'))$('#marketClose').onclick=()=>$('#marketModal').classList.add('hidden');
 if($('#marketModal'))$('#marketModal').onclick=e=>{if(e.target.id==='marketModal')$('#marketModal').classList.add('hidden')};
+
+
+function bindRealFootball(){
+  document.querySelectorAll('[data-real-odds]').forEach(b=>b.onclick=()=>openRealOdds(b.dataset.realOdds));
+  const search=document.querySelector('#search');
+  if(search)search.oninput=e=>{
+    const q=e.target.value.toLowerCase().trim();
+    document.querySelectorAll('.real-event').forEach(row=>{
+      row.style.display=!q||row.textContent.toLowerCase().includes(q)?'grid':'none';
+    });
+  };
+}
 
 function bindDynamic(){
  $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
