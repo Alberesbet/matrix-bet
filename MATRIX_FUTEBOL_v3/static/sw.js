@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v324-fresh";
+const CACHE="matrix-futebol-v325-fresh";
 const STATIC=["/static/manifest.webmanifest","/static/icon-192.png","/static/icon-512.png"];
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).catch(()=>{}));
@@ -11,7 +11,7 @@ self.addEventListener("activate",e=>{
 });
 self.addEventListener("fetch",e=>{
   const req=e.request,url=new URL(req.url);
-  if(req.mode==="navigate" || url.pathname==="/" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/bfbot/")){
+  if(req.mode==="navigate" || url.pathname==="/" || url.pathname.startsWith("/api/")){
     e.respondWith(fetch(req,{cache:"no-store"}).catch(()=>caches.match(req)));
     return;
   }

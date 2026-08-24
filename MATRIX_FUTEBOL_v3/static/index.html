@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.24">
+<body data-matrix-version="3.25">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.24 • PONTE BF BOT CORRIGIDA • HEARTBEAT • CSV ROBUSTO</div>
+      <div class="sub">V3.25 • FINALIZAÇÃO SPORTMONKS • TIMES + HORÁRIO • PLACAR FINAL</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -1151,6 +1151,34 @@ if($('continueWeb'))$('continueWeb').onclick=()=>{
 
 if(isInstalledPwa() || localStorage.getItem('matrix_continue_web')==='1'){
   hideInstallBanner();
+}
+
+
+async function reconcileResults(){
+  const btn=$('reconcileResultsBtn');
+  const msg=$('reconcileMsg');
+  try{
+    if(btn){btn.disabled=true;btn.textContent='RECONCILIANDO...';}
+    if(msg)msg.textContent='Buscando times, horário e placar final no SportMonks...';
+
+    const r=await fetch('/api/demo/reconciliar-resultados',{
+      method:'POST',
+      cache:'no-store'
+    });
+    const data=await r.json();
+    if(!r.ok || !data.ok) throw new Error(data.erro||'Falha ao reconciliar.');
+
+    const x=data.resultado||{};
+    if(msg){
+      msg.textContent=
+        `Finalizadas agora: ${x.alteradas||0} • vinculadas: ${x.vinculadas_sportmonks_agora||0} • aguardando: ${x.aguardando_final||0}`;
+    }
+    await refresh();
+  }catch(e){
+    if(msg)msg.textContent='Erro: '+e.message;
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='🔄 RECONCILIAR RESULTADOS';}
+  }
 }
 
 async function refresh(){

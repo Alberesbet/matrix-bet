@@ -1,4 +1,4 @@
-import os, time, threading, statistics, csv, io, re, unicodedata, math, json, base64
+import os, time, threading, statistics, csv, io, re, unicodedata, math, json, base64, difflib
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -64,7 +64,10 @@ CONFIG = {
     "demo_server_tick_seconds": int(os.getenv("MATRIX_DEMO_SERVER_TICK_SECONDS", "12")),
     "demo_finish_grace_minutes": int(os.getenv("MATRIX_DEMO_FINISH_GRACE_MINUTES", "130")),
     "sportmonks_reconcile_ttl": int(os.getenv("MATRIX_RECONCILE_TTL", "45")),
-    "sportmonks_reconcile_days_back": int(os.getenv("MATRIX_RECONCILE_DAYS_BACK", "2")),
+    "sportmonks_reconcile_days_back": int(os.getenv("MATRIX_RECONCILE_DAYS_BACK", "4")),
+    "sportmonks_reconcile_days_forward": int(os.getenv("MATRIX_RECONCILE_DAYS_FORWARD", "1")),
+    "sportmonks_match_time_tolerance_minutes": int(os.getenv("MATRIX_MATCH_TIME_TOLERANCE", "240")),
+    "sportmonks_match_min_score": int(os.getenv("MATRIX_MATCH_MIN_SCORE", "68")),
     "live_status_max_age_seconds": int(os.getenv("MATRIX_LIVE_STATUS_MAX_AGE", "75")),
     "bfbot_bridge_fresh_seconds": int(os.getenv("BFBOT_BRIDGE_FRESH_SECONDS", "150")),
     "bfbot_bridge_heartbeat_seconds": int(os.getenv("BFBOT_BRIDGE_HEARTBEAT_SECONDS", "45")),
@@ -2366,33 +2369,60 @@ def _bet_pair(bet):
     return _event_pair(bet.get("jogo"))
 
 
-def _team_name_close(a, b):
+def _team_tokens(name):
+    n = _norm_text(name)
+    stop = {
+        "fc", "fk", "if", "sc", "cf", "afc", "ac", "club", "clube",
+        "football", "futebol", "team", "de", "da", "do", "the", "esporte",
+        "esportivo", "associacao", "associação", "sociedade", "sport"
+    }
+    return [x for x in n.split() if x not in stop and len(x) > 1]
+
+
+def _team_similarity(a, b):
     a = _norm_text(a)
     b = _norm_text(b)
     if not a or not b:
-        return False
-    if a == b or a in b or b in a:
-        return True
+        return 0.0
+    if a == b:
+        return 1.0
+    if a in b or b in a:
+        return 0.94
 
-    # Remove common club prefixes/suffixes for a conservative fallback.
-    stop = {
-        "fc", "fk", "if", "sc", "cf", "afc", "ac", "club", "clube",
-        "football", "futebol", "de", "da", "do", "the"
-    }
-    ta = [x for x in a.split() if x not in stop]
-    tb = [x for x in b.split() if x not in stop]
-    if not ta or not tb:
-        return False
-
+    ta = _team_tokens(a)
+    tb = _team_tokens(b)
     sa, sb = set(ta), set(tb)
-    inter = len(sa & sb)
-    return inter >= max(1, min(len(sa), len(sb)) - 1)
+
+    token_score = 0.0
+    if sa and sb:
+        inter = len(sa & sb)
+        union = len(sa | sb)
+        token_score = inter / union if union else 0.0
+
+    seq = difflib.SequenceMatcher(None, " ".join(ta) or a, " ".join(tb) or b).ratio()
+
+    # Números ajudam muito em nomes como FK Kokand 1912.
+    nums_a = set(re.findall(r"\d+", a))
+    nums_b = set(re.findall(r"\d+", b))
+    number_bonus = 0.08 if nums_a and nums_b and nums_a == nums_b else 0.0
+
+    return min(1.0, max(token_score, seq) + number_bonus)
+
+
+def _team_name_close(a, b):
+    return _team_similarity(a, b) >= 0.67
+
 
 
 def _sportmonks_reconcile_pool(force=False):
     """
-    Uma única consulta compartilhada serve para TODAS as apostas pendentes.
-    Inclui partidas recentes/finalizadas e a lista in-play atual.
+    Pool de reconciliação para finalizar DEMO.
+
+    Não depende de Fixture ID salvo na entrada.
+    Traz jogos recentes + hoje + amanhã e permite casamento por:
+      - times;
+      - data;
+      - horário aproximado.
     """
     now_ts = time.time()
 
@@ -2412,40 +2442,51 @@ def _sportmonks_reconcile_pool(force=False):
             }
 
     start = (agora() - timedelta(days=CONFIG["sportmonks_reconcile_days_back"])).date()
-    end = (agora() + timedelta(days=1)).date()
+    end = (agora() + timedelta(days=CONFIG["sportmonks_reconcile_days_forward"])).date()
 
-    fixtures = []
-    live_rows = []
-    err = None
+    fixtures, live_rows = [], []
+    errors = []
 
     try:
         fixtures = get_pages(
             f"/fixtures/between/{start.isoformat()}/{end.isoformat()}",
             {"include": "participants;league.country;state;scores"},
-            max_pages=20,
+            max_pages=60,
         )
     except Exception as e:
-        err = f"fixtures: {e}"
+        errors.append(f"fixtures: {e}")
 
     try:
         live_rows = live_games()
     except Exception as e:
-        if err:
-            err += f" | livescores: {e}"
-        else:
-            err = f"livescores: {e}"
+        errors.append(f"livescores: {e}")
+
+    # Junta livescores ao pool caso algum jogo não tenha vindo na paginação de fixtures.
+    by_id = {
+        str(f.get("id")): f
+        for f in fixtures
+        if f.get("id") is not None
+    }
+    for f in live_rows:
+        fid = str(f.get("id") or "")
+        if fid and fid not in by_id:
+            fixtures.append(f)
+            by_id[fid] = f
 
     live_ids = {
         str(f.get("id"))
         for f in live_rows
         if f.get("id") is not None
     }
+
     live_names = set()
     for f in live_rows:
         h, a = _fixture_pair(f)
         if h and a:
             live_names.add((h, a))
             live_names.add((a, h))
+
+    err = " | ".join(errors) if errors else None
 
     with SPORTMONKS_RECONCILE_LOCK:
         SPORTMONKS_RECONCILE_CACHE["ts"] = time.time()
@@ -2463,13 +2504,18 @@ def _sportmonks_reconcile_pool(force=False):
     }
 
 
+
 def _match_bet_to_fixture(bet, pool):
     """
-    Liga apostas antigas ao SportMonks mesmo quando o Fixture ID não foi salvo.
-    Critérios:
-      1. Fixture ID já existente;
-      2. nomes Casa/Fora;
-      3. horário próximo como desempate.
+    Liga a aposta DEMO a um fixture SportMonks mesmo sem Fixture ID.
+
+    Pontuação:
+      + nomes dos dois times;
+      + ordem casa/fora;
+      + data;
+      + diferença de horário.
+
+    Retorna somente combinação suficientemente segura.
     """
     fixtures = pool.get("fixtures") or []
     fid = str(bet.get("fixture_id") or "").strip()
@@ -2477,7 +2523,10 @@ def _match_bet_to_fixture(bet, pool):
     if fid:
         for f in fixtures:
             if str(f.get("id")) == fid:
-                return f
+                b = dict(f)
+                b["_matrix_match_score"] = 999
+                b["_matrix_match_reason"] = "FIXTURE_ID"
+                return b
 
     bh, ba = _bet_pair(bet)
     if not bh or not ba:
@@ -2491,41 +2540,80 @@ def _match_bet_to_fixture(bet, pool):
         if not fh or not fa:
             continue
 
-        exact = (bh == fh and ba == fa)
-        reverse = (bh == fa and ba == fh)
-        fuzzy = (
-            _team_name_close(bh, fh) and _team_name_close(ba, fa)
-        ) or (
-            _team_name_close(bh, fa) and _team_name_close(ba, fh)
-        )
+        direct_home = _team_similarity(bh, fh)
+        direct_away = _team_similarity(ba, fa)
+        reverse_home = _team_similarity(bh, fa)
+        reverse_away = _team_similarity(ba, fh)
 
-        if not (exact or reverse or fuzzy):
+        direct = (direct_home + direct_away) / 2.0
+        reverse = (reverse_home + reverse_away) / 2.0
+
+        orientation = "DIRECT" if direct >= reverse else "REVERSE"
+        name_score = max(direct, reverse)
+
+        # Exige que os DOIS times tenham alguma correspondência real.
+        pair_min = (
+            min(direct_home, direct_away)
+            if orientation == "DIRECT"
+            else min(reverse_home, reverse_away)
+        )
+        if name_score < 0.61 or pair_min < 0.50:
             continue
 
-        score = 100 if exact else (85 if reverse else 65)
+        score = name_score * 100.0
         fixture_dt = parse_dt(f.get("starting_at"))
         delta = 10**12
+        reason = [f"NOMES={name_score:.2f}", orientation]
 
         if bet_dt and fixture_dt:
             delta = abs((bet_dt - fixture_dt).total_seconds())
-            if delta <= 15 * 60:
-                score += 35
-            elif delta <= 60 * 60:
-                score += 20
-            elif delta <= 3 * 60 * 60:
-                score += 5
-            else:
-                score -= 35
+            delta_min = delta / 60.0
 
-        candidates.append((score, delta, f))
+            # Mesma data é um sinal importante.
+            if bet_dt.date() == fixture_dt.date():
+                score += 18
+                reason.append("MESMA_DATA")
+            else:
+                days = abs((bet_dt.date() - fixture_dt.date()).days)
+                score -= min(45, days * 20)
+                reason.append(f"DATA_DIF={days}d")
+
+            if delta_min <= 10:
+                score += 30
+            elif delta_min <= 30:
+                score += 24
+            elif delta_min <= 60:
+                score += 16
+            elif delta_min <= 120:
+                score += 8
+            elif delta_min <= CONFIG["sportmonks_match_time_tolerance_minutes"]:
+                score += 1
+            else:
+                score -= 50
+            reason.append(f"DELTA={delta_min:.0f}min")
+
+        candidates.append((score, delta, f, " | ".join(reason)))
 
     if not candidates:
         return None
 
     candidates.sort(key=lambda x: (-x[0], x[1]))
-    if candidates[0][0] < 60:
+    best_score, _, best, reason = candidates[0]
+
+    # Evita ambiguidade se dois jogos ficarem praticamente empatados.
+    if len(candidates) > 1:
+        second_score = candidates[1][0]
+        if best_score - second_score < 4 and best_score < 110:
+            return None
+
+    if best_score < CONFIG["sportmonks_match_min_score"]:
         return None
-    return candidates[0][2]
+
+    result = dict(best)
+    result["_matrix_match_score"] = round(best_score, 1)
+    result["_matrix_match_reason"] = reason
+    return result
+
 
 
 def _fixture_is_live_now(f, pool):
@@ -2543,24 +2631,6 @@ def _fixture_is_live_now(f, pool):
     return False
 
 
-def _fixture_final_payload(f):
-    if not f:
-        return None
-
-    home, away = participants(f)
-    scores = h2h_score_by_team(f)
-    return {
-        "fixture_id": str(f.get("id") or ""),
-        "finished": _fixture_finished_state(f),
-        "home": home.get("name"),
-        "away": away.get("name"),
-        "home_goals": scores.get(home.get("id")),
-        "away_goals": scores.get(away.get("id")),
-        "state": state_text(f),
-        "source": "SPORTMONKS_RECONCILE",
-    }
-
-
 def _fixture_finished_state(f):
     st = f.get("state") or {}
     raw = " ".join([
@@ -2568,22 +2638,117 @@ def _fixture_finished_state(f):
         str(st.get("name") or ""),
         str(st.get("state") or ""),
         str(st.get("developer_name") or ""),
+        str(f.get("result_info") or ""),
     ])
     n = _norm_text(raw)
-    terms = (
+
+    finished_terms = (
         "ft", "finished", "full time", "after extra time",
-        "aet", "after penalties", "pen", "ended", "finalizado"
+        "aet", "after penalties", "pen", "ended", "finalizado",
+        "finalizada", "match finished", "fulltime"
     )
-    return any(t == n or t in n for t in terms)
+    if any(t == n or t in n for t in finished_terms):
+        return True
+
+    # SportMonks state IDs conhecidos podem variar por plano; developer/name é preferido.
+    # Não inferimos finalização apenas pelo relógio aqui.
+    return False
 
 
-def _sportmonks_fixture_final(fixture_id):
+def _final_score_by_team(f):
+    """
+    Extrai o placar final de estruturas SportMonks diferentes.
+    Prefere CURRENT/FT; evita usar placares intermediários se houver final.
+    """
+    home, away = participants(f)
+    hid, aid = home.get("id"), away.get("id")
+
+    rows = list(f.get("scores") or [])
+    if not rows:
+        return None, None
+
+    priority = {
+        "CURRENT": 100,
+        "FT": 95,
+        "FULLTIME": 95,
+        "FULL TIME": 95,
+        "2ND_HALF": 70,
+        "SECOND_HALF": 70,
+        "HT": 40,
+        "1ST_HALF": 30,
+    }
+
+    best = {}
+    for s in rows:
+        desc = str(s.get("description") or "").upper().strip()
+        score_obj = s.get("score") or {}
+        goals = score_obj.get("goals")
+        if goals is None:
+            continue
+
+        pid = s.get("participant_id")
+        loc = str(score_obj.get("participant") or "").lower()
+        if pid is None:
+            if loc == "home":
+                pid = hid
+            elif loc == "away":
+                pid = aid
+        if pid is None:
+            continue
+
+        p = priority.get(desc, 50 if _fixture_finished_state(f) else 20)
+        old = best.get(pid)
+        if old is None or p >= old[0]:
+            try:
+                best[pid] = (p, int(goals))
+            except Exception:
+                pass
+
+    hg = best.get(hid, (None, None))[1]
+    ag = best.get(aid, (None, None))[1]
+
+    # Fallback ao helper antigo.
+    if hg is None or ag is None:
+        old = h2h_score_by_team(f)
+        hg = old.get(hid) if hg is None else hg
+        ag = old.get(aid) if ag is None else ag
+
+    return hg, ag
+
+
+def _fixture_final_payload(f):
+    if not f:
+        return None
+
+    home, away = participants(f)
+    hg, ag = _final_score_by_team(f)
+
+    return {
+        "fixture_id": str(f.get("id") or ""),
+        "finished": _fixture_finished_state(f),
+        "home": home.get("name"),
+        "away": away.get("name"),
+        "home_goals": hg,
+        "away_goals": ag,
+        "state": state_text(f),
+        "source": "SPORTMONKS_RECONCILE",
+        "match_score": f.get("_matrix_match_score"),
+        "match_reason": f.get("_matrix_match_reason"),
+    }
+
+
+
+def _sportmonks_fixture_final(fixture_id, force=False):
     fid = str(fixture_id or "").strip()
     if not fid:
         return None
 
     cached = SPORTMONKS_SETTLE_CACHE.get(fid)
-    if cached and time.time() - cached["ts"] < SPORTMONKS_SETTLE_TTL:
+    if (
+        not force
+        and cached
+        and time.time() - cached["ts"] < SPORTMONKS_SETTLE_TTL
+    ):
         return cached["data"]
 
     try:
@@ -2596,21 +2761,57 @@ def _sportmonks_fixture_final(fixture_id):
             return None
 
         home, away = participants(f)
-        scores = h2h_score_by_team(f)
+        hg, ag = _final_score_by_team(f)
+
         data = {
             "fixture_id": fid,
             "finished": _fixture_finished_state(f),
             "home": home.get("name"),
             "away": away.get("name"),
-            "home_goals": scores.get(home.get("id")),
-            "away_goals": scores.get(away.get("id")),
+            "home_goals": hg,
+            "away_goals": ag,
             "state": state_text(f),
-            "source": "SPORTMONKS",
+            "source": "SPORTMONKS_DIRECT",
         }
-        SPORTMONKS_SETTLE_CACHE[fid] = {"ts": time.time(), "data": data}
+
+        SPORTMONKS_SETTLE_CACHE[fid] = {
+            "ts": time.time(),
+            "data": data
+        }
         return data
-    except Exception:
-        return None
+    except Exception as e:
+        return {
+            "fixture_id": fid,
+            "finished": False,
+            "error": str(e),
+            "source": "SPORTMONKS_DIRECT",
+        }
+
+
+
+def _infer_bet_market_kind(bet):
+    kind = str(bet.get("market_kind") or "").upper().strip()
+    if kind:
+        return kind
+
+    name = _norm_text(bet.get("mercado"))
+    if (
+        "resultado da partida" in name
+        or "match odds" in name
+        or name in ("1x2", "1 x 2")
+    ):
+        return "MATCH_ODDS"
+    if "1 5" in name and (
+        "mais menos" in name or "over under" in name or "gols" in name
+    ):
+        return "OVER_UNDER_15"
+    if "2 5" in name and (
+        "mais menos" in name or "over under" in name or "gols" in name
+    ):
+        return "OVER_UNDER_25"
+    if ("ambas" in name and "marcam" in name) or "both teams" in name:
+        return "BOTH_TEAMS_SCORE"
+    return ""
 
 
 def _selection_won_from_score(bet, final):
@@ -2621,21 +2822,42 @@ def _selection_won_from_score(bet, final):
     if hg is None or ag is None:
         return None
 
-    kind = str(bet.get("market_kind") or "").upper()
+    try:
+        hg, ag = int(hg), int(ag)
+    except Exception:
+        return None
+
+    kind = _infer_bet_market_kind(bet)
     selection = _norm_text(bet.get("selecao"))
     home = _norm_text(final.get("home"))
     away = _norm_text(final.get("away"))
 
     if kind == "MATCH_ODDS":
-        winner = home if hg > ag else (away if ag > hg else "empate")
+        if hg > ag:
+            winner = home
+            winner_side = "home"
+        elif ag > hg:
+            winner = away
+            winner_side = "away"
+        else:
+            winner = "empate"
+            winner_side = "draw"
+
+        if selection in ("home", "casa", "1"):
+            return winner_side == "home"
+        if selection in ("away", "fora", "2"):
+            return winner_side == "away"
+        if selection in ("draw", "the draw", "empate", "x"):
+            return winner_side == "draw"
+
         return (
             selection == winner
-            or selection in winner
-            or winner in selection
-            or (winner == "empate" and selection in ("draw", "the draw", "empate"))
+            or (selection and winner and selection in winner)
+            or (selection and winner and winner in selection)
+            or _team_name_close(selection, winner)
         )
 
-    total = int(hg) + int(ag)
+    total = hg + ag
 
     if kind == "OVER_UNDER_15":
         over = total >= 2
@@ -2653,12 +2875,13 @@ def _selection_won_from_score(bet, final):
 
     if kind == "BOTH_TEAMS_SCORE":
         yes = hg > 0 and ag > 0
-        if selection in ("sim", "yes"):
+        if selection in ("sim", "yes", "ambas marcam sim"):
             return yes
-        if selection in ("nao", "no"):
+        if selection in ("nao", "não", "no", "ambas marcam nao", "ambas marcam não"):
             return not yes
 
     return None
+
 
 
 def _settle_bet_object(b, won, source, result_text=None):
@@ -2813,12 +3036,37 @@ def demo_server_settle_pending(force_reconcile=False):
                 b["liga"] = b.get("liga") or league_name(fixture)
                 linked_now += 1
 
+            b["sportmonks_match_score"] = fixture.get("_matrix_match_score")
+            b["sportmonks_match_reason"] = fixture.get("_matrix_match_reason")
+
+            # Primeiro lê o fixture do pool; depois consulta DIRETAMENTE o ID.
             final = _fixture_final_payload(fixture)
+            direct = _sportmonks_fixture_final(
+                b.get("fixture_id"),
+                force=bool(force_reconcile),
+            )
+
+            if direct and (
+                direct.get("finished")
+                or direct.get("home_goals") is not None
+                or direct.get("away_goals") is not None
+            ):
+                final = direct
 
             if final and final.get("finished"):
                 won = _selection_won_from_score(b, final)
+                b["placar_final_sportmonks"] = (
+                    f"{final.get('home_goals')} x {final.get('away_goals')}"
+                )
+                b["estado_final_sportmonks"] = final.get("state")
+                b["fonte_placar_final"] = final.get("source")
+
                 if won is not None:
-                    score = f"{final.get('home_goals')} x {final.get('away_goals')}"
+                    score = (
+                        f"{final.get('home')} "
+                        f"{final.get('home_goals')} x {final.get('away_goals')} "
+                        f"{final.get('away')}"
+                    )
                     _settle_bet_object(
                         b,
                         bool(won),
@@ -2827,6 +3075,11 @@ def demo_server_settle_pending(force_reconcile=False):
                     )
                     changed += 1
                     continue
+                else:
+                    b["erro_liquidacao"] = (
+                        "Placar final encontrado, mas o mercado/seleção "
+                        "não pôde ser interpretado."
+                    )
 
             if _fixture_is_live_now(fixture, pool):
                 b["status_operacional"] = "EM ANDAMENTO"
@@ -2878,6 +3131,14 @@ def demo_server_settle_pending(force_reconcile=False):
             and str(b.get("status_operacional") or "") == "AGUARDANDO CONFIRMAÇÃO FINAL"
         ),
         "reconcile_error": pool.get("error"),
+        "sportmonks_pool_fixtures": len(pool.get("fixtures") or []),
+        "sportmonks_live": len(pool.get("live_ids") or set()),
+        "vinculadas_total_sportmonks": sum(
+            1 for b in vals if b.get("fixture_id")
+        ),
+        "com_placar_final_sportmonks": sum(
+            1 for b in vals if b.get("placar_final_sportmonks")
+        ),
     }
 
 
@@ -4289,7 +4550,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.24 PONTE BFBOT CORRIGIDA + HEARTBEAT + CSV ROBUSTO",
+        "versao": "V3.25 FINALIZACAO SPORTMONKS FORTE + MATCH TIMES HORARIO",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -4545,6 +4806,23 @@ async def bfbot_bridge_heartbeat(request: Request):
     return JSONResponse({"ok": True, "ponte": bfbot_bridge_snapshot()})
 
 
+
+@app.post("/api/demo/reconciliar-resultados")
+def demo_reconciliar_resultados():
+    result = demo_server_settle_pending(force_reconcile=True)
+    with DEMO_CLOUD_LOCK:
+        bets = [dict(x) for x in DEMO_CLOUD_BETS]
+    return JSONResponse({
+        "ok": True,
+        "resultado": result,
+        "resumo": _demo_cloud_summary(bets),
+        "mensagem": (
+            "Reconciliação forçada: times + data/horário -> Fixture SportMonks "
+            "-> placar final -> ganhou/perdeu."
+        ),
+    })
+
+
 @app.get("/api/bfbot/bridge")
 def bfbot_bridge_status():
     with BFBOT_BRIDGE_LOCK:
@@ -4717,7 +4995,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.24", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True}
+    return {"ok": True, "versao": "3.25", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -4728,6 +5006,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.24",
+            "X-Matrix-Version": "3.25",
         },
     )
