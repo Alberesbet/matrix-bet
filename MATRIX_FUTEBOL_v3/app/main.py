@@ -1016,14 +1016,25 @@ def demo_live_candidates():
             "liquidez": market_liquidity,
             "prob_implicita": implied,
             "indice_demo": demo_score,
+            "time_favorito_betfair": selection,
+            "confirmacao_favorito": True,
+            "valor_minimo_selecao": CONFIG["demo_min_selection_value"],
+            "liquidez_minima_mercado": CONFIG["demo_min_market_liquidity"],
+            "janela_minuto_min": CONFIG["demo_min_live_minute"],
+            "janela_minuto_max": CONFIG["demo_max_live_minute"],
             "live_source": live_state,
             "start_time": row.get("start_time"),
             "fonte_odd": "BETFAIR",
             "modo": "AUTO DEMO",
             "motivo": (
-                f"Betfair/BF Bot: minuto ~{elapsed}; odd {odd:.2f}; "
-                f"valor visível na seleção {selection_value:.2f}; "
-                f"total correspondido {row.get('total_matched') or '-'}."
+                f"Entrada AUTO DEMO aprovada porque {selection} é o 1º favorito exibido "
+                f"pelo BF Bot/Betfair; minuto ~{elapsed} dentro da janela "
+                f"{CONFIG['demo_min_live_minute']}-{CONFIG['demo_max_live_minute']}; "
+                f"odd Betfair {odd:.2f} dentro da faixa {CONFIG['demo_odd_min']:.2f}-"
+                f"{CONFIG['demo_odd_max']:.2f}; valor disponível na seleção "
+                f"{selection_value:.2f} >= {CONFIG['demo_min_selection_value']:.2f}; "
+                f"total correspondido do mercado {row.get('total_matched') or '-'} "
+                f">= mínimo configurado."
             ),
         })
 

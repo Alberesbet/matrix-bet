@@ -19,7 +19,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 .reason,.h2h{margin-top:9px;padding-top:9px;border-top:1px solid #253942;font-size:12px;color:#c5d1cc}.score{font-size:25px;font-weight:900;margin:7px 0}.clock{font-size:17px;font-weight:900;color:#ff9fbd}
 .betbox{margin-top:10px;padding:10px;background:#0b1319;border:1px solid #22343d;border-radius:10px}.betinput{width:100px;padding:8px;border-radius:8px;border:1px solid #36505b;background:#071015;color:#fff}
 .smallgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.mini{background:#0b1319;border-radius:9px;padding:8px;text-align:center}.mini b{display:block;margin-top:3px}
-.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}
+.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}.infoBox{margin-top:10px;padding:10px;border:1px solid #2c4855;border-radius:10px;background:#0b151c}.why{margin-top:8px;padding:9px;border-left:3px solid #49e7a4;background:#0b151c;font-size:12px}.warnText{color:#ffd96c}
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.16 • CONTADOR AUTO DEMO CORRIGIDO • HISTÓRICO • BETFAIR</div>
+      <div class="sub">V3.17 • ANÁLISE DE ENTRADA CLARA • AUTO DEMO • BETFAIR</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -204,6 +204,14 @@ function autoDemoBets(){
       valor_na_selecao:Number(c.valor_na_selecao||0),
       total_correspondido:c.total_correspondido,
       indice_demo:c.indice_demo,
+      prob_implicita:c.prob_implicita,
+      time_favorito_betfair:c.time_favorito_betfair||c.selecao,
+      confirmacao_favorito:!!c.confirmacao_favorito,
+      valor_minimo_selecao:Number(c.valor_minimo_selecao||0),
+      liquidez_minima_mercado:Number(c.liquidez_minima_mercado||0),
+      minuto_entrada:c.minuto,
+      janela_minuto_min:c.janela_minuto_min,
+      janela_minuto_max:c.janela_minuto_max,
       retorno,
       lucro:Number((retorno-stake).toFixed(2)),
       motivo:c.motivo,
@@ -260,6 +268,12 @@ function renderDemo(){
   $('list').innerHTML=`
     <div class="item">
       <div class="row"><strong>AUTO DEMO AO VIVO</strong><span class="badge">${d.habilitado?'LIGADO':'DESLIGADO'}</span></div>
+      <div class="infoBox">
+        <b>Como ler os valores:</b><br>
+        <span class="money">Valor disponível na seleção</span> = dinheiro disponível naquela cotação do time/seleção mostrada.<br>
+        <span class="money">Total correspondido do mercado</span> = todo o dinheiro já negociado no mercado inteiro, incluindo outras seleções e BACK/LAY.<br>
+        <span class="warnText">O total correspondido NÃO é o total apostado somente no time escolhido.</span>
+      </div>
       <div class="row"><span>Banca de demonstração</span><b>${money(d.banca_inicial||1000)}</b></div>
       <div class="row"><span>Valor por entrada</span><b>${money(d.valor_por_entrada||10)}</b></div>
       <div class="row"><span>Saldo disponível</span><b class="money">${money(s.available)}</b></div>
@@ -274,16 +288,38 @@ function renderDemo(){
       <div class="reason"><b>Segurança:</b> somente demonstração. Nenhuma ordem real é enviada.</div>
     </div>
     ${c.map(x=>`<div class="item">
-      <div class="row"><strong>${esc(x.jogo)}</strong><span class="badge live">AUTO DEMO</span></div>
+      <div class="row"><strong>${esc(x.jogo)}</strong><span class="badge">AUTO DEMO</span></div>
       <div class="muted">~${x.minuto} min • ${esc(x.mercado)}</div>
-      <div class="row"><span>Seleção</span><b>${esc(x.selecao)}</b></div>
-      <div class="row"><span>Odd BETFAIR</span><b>${Number(x.odd).toFixed(2)}</b></div>
-      <div class="row"><span>Valor disponível no nome/seleção</span><b>${money(x.valor_na_selecao)}</b></div>
-      <div class="row"><span>Total correspondido do mercado</span><b>${esc(x.total_correspondido||'—')}</b></div>
-      <div class="row"><span>Índice de triagem</span><b>${x.indice_demo}%</b></div>
+
+      <div class="row"><span>TIME/SELEÇÃO ESCOLHIDA PELO ROBÔ</span><b class="money">${esc(x.selecao)}</b></div>
+      <div class="row"><span>1º favorito exibido pela Betfair/BF Bot</span><b>${esc(x.time_favorito_betfair||x.selecao)}</b></div>
+      <div class="row"><span>Confirmação do favorito</span><b>${x.confirmacao_favorito?'SIM ✓':'NÃO'}</b></div>
+
+      <div class="row"><span>Odd BETFAIR da seleção</span><b>${Number(x.odd).toFixed(2)}</b></div>
+      <div class="row"><span>Prob. implícita da odd</span><b>${Number(x.prob_implicita||0).toFixed(1)}%</b></div>
+
+      <div class="row"><span>Valor disponível NESTA seleção/cotação</span><b class="money">${money(x.valor_na_selecao)}</b></div>
+      <div class="muted">Esse valor pertence à cotação exibida da seleção ${esc(x.selecao)}.</div>
+
+      <div class="row"><span>Total correspondido em TODO o mercado</span><b>${esc(x.total_correspondido||'—')}</b></div>
+      <div class="muted">Esse total soma o mercado inteiro; não é dinheiro apostado apenas em ${esc(x.selecao)}.</div>
+
+      <div class="row"><span>Índice de triagem MATRIX</span><b>${x.indice_demo}%</b></div>
       <div class="row"><span>Valor DEMO</span><b>${money(x.stake)}</b></div>
       <div class="row"><span>Retorno potencial</span><b class="money">${money(x.retorno_potencial)}</b></div>
+
+      <div class="why">
+        <b>POR QUE O ROBÔ ENTROU?</b><br>
+        1. ${esc(x.selecao)} era o 1º favorito exibido pelo BF Bot/Betfair.<br>
+        2. Odd ${Number(x.odd).toFixed(2)} estava dentro da faixa permitida.<br>
+        3. Valor disponível na seleção: ${money(x.valor_na_selecao)}.<br>
+        4. Total correspondido do mercado: ${esc(x.total_correspondido||'—')}.<br>
+        5. Minuto aproximado: ${x.minuto}, dentro da janela de entrada.<br>
+        6. Índice de triagem MATRIX: ${x.indice_demo}%.
+      </div>
+
       <div class="reason">${esc(x.motivo)}</div>
+      <div class="reason"><b>Mais apostado?</b> O CSV atual não informa quanto foi correspondido separadamente em cada time. Portanto o MATRIX não inventa 70/30; ele confirma o 1º favorito, a odd e o valor disponível na seleção.</div>
     </div>`).join('')}
     ${!c.length?'<div class="item"><b>Nenhuma entrada AUTO DEMO liberada agora.</b><div class="muted">Atualize os dados visíveis para renovar odds e valores.</div></div>':''}
   `;
@@ -435,14 +471,32 @@ function renderBet(b){
   return `<div class="item">
     <div class="row"><strong>${esc(b.jogo)}</strong><span class="badge">${b.auto_demo?'AUTO DEMO':'SIMULAÇÃO'}</span></div>
     <div class="muted">${esc(b.liga||'')} • ${esc(b.horario||'')}</div>
-    <div class="row"><span>Apostado em</span><b>${esc(b.selecao)}</b></div>
+    <div class="row"><span>TIME/SELEÇÃO APOSTADA PELO ROBÔ</span><b class="money">${esc(b.selecao)}</b></div>
+    ${b.time_favorito_betfair?`<div class="row"><span>1º favorito Betfair/BF Bot</span><b>${esc(b.time_favorito_betfair)}</b></div>`:''}
     <div class="row"><span>Mercado</span><b>${esc(b.mercado)}</b></div>
     <div class="row"><span>Valor apostado</span><b>${money(b.stake)}</b></div>
     <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div>
     <div class="row"><span>Fonte da odd</span><b>${esc(b.fonte_odd||"—")}</b></div>
     <div class="row"><span>Retorno potencial</span><b class="money">${money(b.retorno)}</b></div>
     <div class="row"><span>Lucro potencial</span><b class="money">${money(b.lucro)}</b></div>
-    ${b.valor_na_selecao?`<div class="row"><span>Valor no nome/seleção</span><b>${money(b.valor_na_selecao)}</b></div>`:''}
+    ${b.valor_na_selecao?`
+      <div class="row"><span>Valor disponível NESTA seleção/cotação</span><b class="money">${money(b.valor_na_selecao)}</b></div>
+      <div class="muted">Valor disponível na cotação do time/seleção escolhida.</div>`:''}
+    ${b.total_correspondido?`
+      <div class="row"><span>Total correspondido em TODO o mercado</span><b>${esc(b.total_correspondido)}</b></div>
+      <div class="muted">Mercado inteiro: inclui outras seleções e BACK/LAY.</div>`:''}
+
+    ${b.auto_demo?`<div class="why">
+      <b>POR QUE ESTA ENTRADA FOI FEITA?</b><br>
+      ${b.time_favorito_betfair?`• O robô escolheu <b>${esc(b.selecao)}</b>, que era o 1º favorito exibido pela Betfair/BF Bot.<br>`:''}
+      • Odd registrada: <b>${Number(b.odd||0).toFixed(2)}</b>.<br>
+      ${b.valor_na_selecao?`• Valor disponível na seleção: <b>${money(b.valor_na_selecao)}</b>.<br>`:''}
+      ${b.total_correspondido?`• Total correspondido do mercado: <b>${esc(b.total_correspondido)}</b>.<br>`:''}
+      ${b.minuto_entrada!==undefined?`• Minuto aproximado da entrada: <b>${esc(b.minuto_entrada)}</b>.<br>`:''}
+      ${b.indice_demo!==undefined?`• Índice de triagem MATRIX: <b>${esc(b.indice_demo)}%</b>.<br>`:''}
+      <span class="warnText">O CSV atual não permite afirmar que esse time recebeu a maior porcentagem do dinheiro correspondido; ele mostra o 1º favorito e o valor disponível na cotação.</span>
+    </div>`:''}
+
     ${b.status==='GANHOU'||b.status==='PERDEU'?`<div class="row"><span>Resultado realizado</span><b class="money">${money(b.lucro_real||0)}</b></div>`:''}
     ${b.status==='CANCELADA'?`<div class="row"><span>Resultado realizado</span><b class="money">R$ 0,00</b></div>`:''}
     <div class="row"><span>Status</span><b>${esc(b.status||'AGUARDANDO RESULTADO')}</b></div>
