@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+import requests
 
 import hashlib
 import hmac
@@ -174,7 +175,7 @@ def ensure_user_columns():
 
 ensure_user_columns()
 
-app = FastAPI(title="MATRIX BET V6.6.1 PWA SEGURO API", version="6.6.1")
+app = FastAPI(title="MATRIX BET V6.7 SPORTMONKS REAL API", version="6.7.0")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -528,6 +529,130 @@ def make_live():
 LIVE = make_live()
 LIVE_LOOKUP = {e["id"]: e for e in LIVE}
 
+
+SPORTMONKS_BASE = "https://api.sportmonks.com/v3/football"
+
+def _sm_token():
+    token = os.getenv("SPORTMONKS_TOKEN", "").strip()
+    if not token:
+        raise HTTPException(503, "SPORTMONKS_TOKEN não configurado no Render.")
+    return token
+
+def _sm_get(path: str, params=None):
+    params = dict(params or {})
+    params["api_token"] = _sm_token()
+    try:
+        response = requests.get(
+            f"{SPORTMONKS_BASE}{path}",
+            params=params,
+            timeout=20,
+            headers={"Accept": "application/json"}
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"Falha ao consultar Sportmonks: {exc}")
+    try:
+        payload = response.json()
+    except ValueError:
+        raise HTTPException(502, "Resposta inválida da Sportmonks.")
+    if response.status_code >= 400:
+        message = payload.get("message") if isinstance(payload, dict) else None
+        raise HTTPException(response.status_code, message or "Erro retornado pela Sportmonks.")
+    return payload
+
+def _map_fixture(f):
+    home, away = {}, {}
+    for p in f.get("participants") or []:
+        loc = str((p.get("meta") or {}).get("location") or "").lower()
+        item = {
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "image_path": p.get("image_path"),
+        }
+        if loc == "home":
+            home = item
+        elif loc == "away":
+            away = item
+
+    if not home or not away:
+        bits = re.split(r"\s+vs\s+|\s+v\s+", f.get("name") or "", maxsplit=1, flags=re.I)
+        if not home and bits:
+            home = {"name": bits[0].strip()}
+        if not away and len(bits) > 1:
+            away = {"name": bits[1].strip()}
+
+    league = f.get("league") or {}
+    state = f.get("state") or {}
+    return {
+        "id": str(f.get("id")),
+        "name": f.get("name"),
+        "starting_at": f.get("starting_at"),
+        "home": home,
+        "away": away,
+        "league": {
+            "id": league.get("id") or f.get("league_id"),
+            "name": league.get("name"),
+            "image_path": league.get("image_path"),
+        },
+        "state": {
+            "id": state.get("id") or f.get("state_id"),
+            "name": state.get("name"),
+            "short_name": state.get("short_name"),
+        },
+        "has_odds": bool(f.get("has_odds")),
+        "has_premium_odds": bool(f.get("has_premium_odds")),
+        "result_info": f.get("result_info"),
+    }
+
+@app.get("/api/real/status")
+def real_feed_status(user: User = Depends(get_current_user)):
+    return {
+        "provider": "Sportmonks",
+        "configured": bool(os.getenv("SPORTMONKS_TOKEN", "").strip()),
+        "version": "6.7.0"
+    }
+
+@app.get("/api/real/fixtures")
+def real_fixtures(date: str | None = None, user: User = Depends(get_current_user)):
+    from datetime import datetime, timezone
+    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    payload = _sm_get(
+        f"/fixtures/between/{day}/{day}",
+        {"include": "participants;league;state"}
+    )
+    rows = [_map_fixture(x) for x in payload.get("data", [])]
+    return {
+        "provider": "Sportmonks",
+        "date": day,
+        "count": len(rows),
+        "fixtures": rows,
+    }
+
+@app.get("/api/real/fixtures/{fixture_id}/odds")
+def real_fixture_odds(fixture_id: int, user: User = Depends(get_current_user)):
+    payload = _sm_get(
+        f"/odds/pre-match/fixtures/{fixture_id}",
+        {"include": "market;bookmaker"}
+    )
+    return {
+        "provider": "Sportmonks",
+        "fixture_id": fixture_id,
+        "count": len(payload.get("data", [])),
+        "odds": payload.get("data", []),
+    }
+
+@app.get("/api/real/inplay")
+def real_inplay_odds(user: User = Depends(get_current_user)):
+    payload = _sm_get(
+        "/odds/inplay",
+        {"include": "market;bookmaker"}
+    )
+    return {
+        "provider": "Sportmonks",
+        "count": len(payload.get("data", [])),
+        "odds": payload.get("data", []),
+    }
+
+
 @app.get("/health")
 def health():
     db_ok = True
@@ -540,7 +665,7 @@ def health():
         db_error = exc.__class__.__name__
     return {
         "ok": db_ok,
-        "version": "6.6.1",
+        "version": "6.7.0",
         "database": "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite",
         "persistent_database": DATABASE_URL.startswith("postgresql"),
         "db_error": db_error,
@@ -1358,7 +1483,7 @@ def admin_service_worker():
 def app_mode():
     return {
         "mode": os.getenv("APP_MODE", "user").strip().lower(),
-        "version": "6.6.1",
+        "version": "6.7.0",
         "hostname": os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
     }
 
@@ -1380,7 +1505,7 @@ def admin_page():
 def admin_status(admin: User = Depends(get_admin_user)):
     return {
         "ok": True,
-        "version": "6.6.1",
+        "version": "6.7.0",
         "admin": {"id": admin.id, "name": admin.name, "email": admin.email}
     }
 
