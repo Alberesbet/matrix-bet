@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v310live";
+const CACHE="matrix-futebol-v311visible";
 self.addEventListener("install",()=>self.skipWaiting());
 self.addEventListener("activate",e=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(

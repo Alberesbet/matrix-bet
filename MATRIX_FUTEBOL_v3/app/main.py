@@ -50,6 +50,18 @@ BETFAIR_MIRROR = {
     "error": None,
 }
 
+BETFAIR_VISIBLE = {
+    "rows": [],
+    "updated_at": None,
+    "filename": None,
+    "rows_received": 0,
+    "error": None,
+}
+
+BETFAIR_VISIBLE_CACHE_FILE = Path(
+    os.getenv("BETFAIR_VISIBLE_CACHE_FILE", "/tmp/matrix_betfair_visible.csv")
+)
+
 BETFAIR_MARKETS_CACHE_FILE = Path(
     os.getenv("BETFAIR_MARKETS_CACHE_FILE", "/tmp/matrix_betfair_markets.csv")
 )
@@ -256,6 +268,185 @@ def parse_betfair_markets_csv(text):
 
 
 
+
+def _parse_br_number(value):
+    s = str(value or "").strip()
+    if not s:
+        return None
+    s = s.replace("R$", "").replace("%", "").strip()
+    s = s.replace(".", "").replace(",", ".")
+    s = re.sub(r"[^0-9.\-]", "", s)
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def _parse_first_favorite(value):
+    # Ex.: Sabah FA, R$515,77@2,32
+    s = str(value or "").strip()
+    if not s:
+        return None, None, None
+    if "@" not in s:
+        return s, None, None
+    left, odd_raw = s.rsplit("@", 1)
+    odd = _parse_br_number(odd_raw)
+    selection = left.strip()
+    amount = None
+    m = re.match(r"^(.*?),\s*R\$\s*([0-9\.\,]+)\s*$", left)
+    if m:
+        selection = m.group(1).strip()
+        amount = _parse_br_number(m.group(2))
+    return selection, odd, amount
+
+
+def _split_event_market(value):
+    s = str(value or "").strip()
+    if "\\" in s:
+        return s.split("\\", 1)
+    return s, ""
+
+
+def _market_lookup_indexes():
+    with LOCK:
+        markets = list(BETFAIR_MIRROR.get("markets") or [])
+    exact, relaxed = {}, {}
+    for m in markets:
+        e = _norm_text(m.get("event_name"))
+        mk = _norm_text(m.get("market_name"))
+        st = str(m.get("start_time") or "").strip()
+        exact[(e, mk, st)] = m
+        relaxed[(e, mk)] = m
+    return exact, relaxed
+
+
+def parse_betfair_visible_csv(text):
+    """
+    Parser do arquivo REAL:
+    BF Bot Manager -> Exportar todos os dados visíveis.
+    """
+    text = str(text or "").lstrip("\ufeff").strip()
+    if not text:
+        return []
+
+    try:
+        dialect = csv.Sniffer().sniff(text[:8192], delimiters=";,\t")
+        delim = dialect.delimiter
+    except Exception:
+        delim = ";"
+
+    exact, relaxed = _market_lookup_indexes()
+    out, seen = [], set()
+
+    for raw in csv.DictReader(io.StringIO(text), delimiter=delim):
+        if not raw:
+            continue
+
+        combined = _row_get(raw, "Evento/mercado", "Evento / mercado")
+        event_name, market_name = _split_event_market(combined)
+
+        if not event_name:
+            event_name = _row_get(raw, "EventName", "Event Name", "Evento")
+        if not market_name:
+            market_name = _row_get(raw, "MarketName", "Market Name", "Mercado")
+
+        start_time = _row_get(raw, "Hora de início", "Hora de inicio", "StartTime", "Start Time")
+        status = _row_get(raw, "Status", "Estado")
+        ip_raw = _row_get(raw, "IP", "InPlay", "In Play")
+        placar = _row_get(raw, "Placar ao vivo", "Placar")
+        tempo = _row_get(raw, "Tempo", "Game Time")
+        video = _row_get(raw, "Vídeo ao vivo", "Video ao vivo", "Live Video")
+        favorito_raw = _row_get(raw, "1º favorito", "1o favorito", "Primeiro favorito")
+        total = _row_get(raw, "Total correspondido", "TotalMatched", "Total Matched")
+        back_book = _row_get(raw, "Back book %", "Back Book %")
+        lay_book = _row_get(raw, "Lay book %", "Lay Book %")
+
+        if not event_name:
+            continue
+
+        favorito, favorite_odd, favorite_amount = _parse_first_favorite(favorito_raw)
+
+        key = (_norm_text(event_name), _norm_text(market_name), start_time)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        mirror = exact.get(key)
+        if mirror is None:
+            mirror = relaxed.get((_norm_text(event_name), _norm_text(market_name)))
+
+        matrix = _find_matrix_game(event_name)
+
+        item = {
+            "event_name": event_name,
+            "market_name": market_name or "Mercado Betfair",
+            "start_time": start_time or None,
+            "status": status or "VISÍVEL",
+            "in_play": str(ip_raw or "").strip().lower() in (
+                "1", "true", "yes", "sim", "checked", "in-play", "in play"
+            ),
+            "in_play_raw": ip_raw or None,
+            "placar": placar or None,
+            "tempo_jogo": tempo or None,
+            "video_ao_vivo": video or None,
+            "favorite_selection": favorito or None,
+            "favorite_odd": favorite_odd,
+            "favorite_amount": favorite_amount,
+            "total_matched": total or None,
+            "total_matched_num": _parse_br_number(total),
+            "back_book": back_book or None,
+            "lay_book": lay_book or None,
+            "market_id": (mirror or {}).get("market_id"),
+            "event_id": (mirror or {}).get("event_id"),
+            "linkado_marketid": bool((mirror or {}).get("market_id")),
+            "linkado_matrix": bool(matrix),
+        }
+
+        if matrix:
+            item.update({
+                "fixture_id": matrix.get("fixture_id"),
+                "matrix_status": matrix.get("status"),
+                "matrix_live": bool(matrix.get("ao_vivo")),
+                "liga": matrix.get("liga"),
+                "pais": matrix.get("pais"),
+                "selecao": matrix.get("selecao"),
+                "odd": matrix.get("odd"),
+                "indice_combinado": matrix.get("indice_combinado"),
+                "motivo": matrix.get("motivo"),
+            })
+
+        out.append(item)
+
+    return out
+
+
+def _save_betfair_visible_cache(text):
+    try:
+        BETFAIR_VISIBLE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BETFAIR_VISIBLE_CACHE_FILE.write_text(str(text or ""), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_betfair_visible_cache():
+    try:
+        if not BETFAIR_VISIBLE_CACHE_FILE.exists():
+            return
+        text = BETFAIR_VISIBLE_CACHE_FILE.read_text(encoding="utf-8")
+        rows = parse_betfair_visible_csv(text)
+        if not rows:
+            return
+        with LOCK:
+            BETFAIR_VISIBLE["rows"] = rows
+            BETFAIR_VISIBLE["updated_at"] = datetime.now(TZ).isoformat()
+            BETFAIR_VISIBLE["filename"] = BETFAIR_VISIBLE_CACHE_FILE.name
+            BETFAIR_VISIBLE["rows_received"] = len(rows)
+            BETFAIR_VISIBLE["error"] = None
+    except Exception as e:
+        with LOCK:
+            BETFAIR_VISIBLE["error"] = str(e)
+
+
 def _market_is_match_odds(market):
     name = _norm_text(market.get("market_name"))
     return (
@@ -288,6 +479,15 @@ def _flex_start_dt(raw):
         return datetime(
             now.year, int(m.group(2)), int(m.group(1)),
             int(m.group(3)), int(m.group(4)),
+            tzinfo=TZ
+        )
+
+    # DD/MM/YYYY HH:MM:SS, formato do Exportar mercados
+    m = re.match(r"^(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$", s)
+    if m:
+        return datetime(
+            int(m.group(3)), int(m.group(2)), int(m.group(1)),
+            int(m.group(4)), int(m.group(5)), int(m.group(6) or 0),
             tzinfo=TZ
         )
     return None
@@ -405,12 +605,9 @@ def _status_is_liveish(market):
 
 def _market_live_state(market):
     """
-    1) If export has InPlay=true, trust it.
-    2) If MATRIX/SportMonks linked it live, trust it.
-    3) If export has an OPEN/SUSPENDED-like status and scheduled start has passed,
-       treat it as Betfair live candidate for up to 4 hours after kickoff.
-    4) If export has no status, infer a 'possible live' candidate from start time
-       only for up to 3 hours after kickoff. This is explicitly marked as inferred.
+    CONFIRMADO: IP/InPlay explícito ou SportMonks.
+    PROVAVEL_AO_VIVO: status OPEN/SUSPENDED + horário já passou.
+    O CSV real recebido deixa IP, Tempo e Placar vazios.
     """
     if market.get("in_play") or market.get("matrix_live"):
         return "CONFIRMADO"
@@ -419,25 +616,27 @@ def _market_live_state(market):
     if not dt:
         return None
 
-    now = agora()
-    delta_min = (now - dt).total_seconds() / 60.0
+    delta_min = (agora() - dt).total_seconds() / 60.0
     if delta_min < 0:
         return None
 
-    if _status_is_liveish(market) and delta_min <= 240:
-        return "BETFAIR_STATUS"
-
-    # Export Markets often lacks InPlay/Status. Use only a narrow time window.
-    if delta_min <= 180:
-        return "INFERIDO_HORARIO"
+    status = _norm_text(market.get("status"))
+    if status in ("open", "aberto", "suspended", "suspenso") and delta_min <= 210:
+        return "PROVAVEL_AO_VIVO"
 
     return None
 
 
+def _betfair_live_source():
+    with LOCK:
+        visible = list(BETFAIR_VISIBLE.get("rows") or [])
+        mirror = list(BETFAIR_MIRROR.get("markets") or [])
+    return visible if visible else mirror
+
+
 def betfair_live_markets(markets=None):
     if markets is None:
-        with LOCK:
-            markets = list(BETFAIR_MIRROR.get("markets") or [])
+        markets = _betfair_live_source()
 
     out = []
     seen = set()
@@ -510,6 +709,12 @@ def betfair_live_payload():
             "market_name": m.get("market_name"),
             "live_source": m.get("live_source"),
             "total_matched": m.get("total_matched"),
+            "favorite_selection": m.get("favorite_selection"),
+            "favorite_odd": m.get("favorite_odd"),
+            "favorite_amount": m.get("favorite_amount"),
+            "back_book": m.get("back_book"),
+            "lay_book": m.get("lay_book"),
+            "linkado_marketid": bool(m.get("market_id") or m.get("linkado_marketid")),
             "linkado_matrix": bool(m.get("linkado_matrix")),
         })
     return items
@@ -530,7 +735,12 @@ def betfair_mirror_snapshot():
         if _market_is_match_odds(x)
     ]
     linked = [x for x in markets if x.get("linkado_matrix")]
-    live = betfair_live_markets(markets)
+    with LOCK:
+        visible_rows = list(BETFAIR_VISIBLE.get("rows") or [])
+        visible_filename = BETFAIR_VISIBLE.get("filename")
+        visible_updated_at = BETFAIR_VISIBLE.get("updated_at")
+        visible_error = BETFAIR_VISIBLE.get("error")
+    live = betfair_live_markets(visible_rows if visible_rows else markets)
     return {
         **meta,
         "markets": markets,
@@ -538,6 +748,11 @@ def betfair_mirror_snapshot():
         "match_odds": len(match_odds),
         "linkados_sportmonks": len(linked),
         "ao_vivo_identificados": len(live),
+        "dados_visiveis": len(visible_rows),
+        "match_odds_visiveis": len([x for x in visible_rows if _market_is_match_odds(x)]),
+        "visible_filename": visible_filename,
+        "visible_updated_at": visible_updated_at,
+        "visible_error": visible_error,
         "fonte": "CSV EXPORTADO DO BF BOT MANAGER",
         "automatico": False,
         "observacao": "O BF Bot Manager não possui auto-exportação pública de mercados; esta lista espelha o último CSV exportado/importado.",
@@ -548,8 +763,9 @@ def betfair_mirror_snapshot():
 app = FastAPI(title="MATRIX - FUTEBOL")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
-# Restaura o último espelho Betfair disponível no container.
+# Restaura os dois arquivos Betfair disponíveis no container.
 _load_betfair_markets_cache()
+_load_betfair_visible_cache()
 
 
 def agora():
@@ -1449,7 +1665,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.10 BETFAIR AO VIVO + MARKETID OBRIGATORIO",
+        "versao": "V3.11 DADOS VISIVEIS + BETFAIR AO VIVO + MARKETID",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -1506,6 +1722,54 @@ async def import_betfair_markets(request: Request):
             BETFAIR_MIRROR["error"] = str(e)
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
 
+
+
+
+@app.post("/api/betfair/visible/import")
+async def import_betfair_visible(request: Request):
+    try:
+        payload = await request.json()
+        text = str(payload.get("csv") or "")
+        filename = str(payload.get("filename") or "betfair_visiveis.csv")
+        if len(text) > 8_000_000:
+            return JSONResponse({"ok": False, "erro": "CSV maior que 8 MB."}, status_code=413)
+
+        rows = parse_betfair_visible_csv(text)
+        _save_betfair_visible_cache(text)
+
+        with LOCK:
+            BETFAIR_VISIBLE["rows"] = rows
+            BETFAIR_VISIBLE["updated_at"] = agora().isoformat()
+            BETFAIR_VISIBLE["filename"] = filename
+            BETFAIR_VISIBLE["rows_received"] = len(rows)
+            BETFAIR_VISIBLE["error"] = None
+
+        live = betfair_live_markets(rows)
+        return JSONResponse({
+            "ok": True,
+            "total": len(rows),
+            "match_odds": len([x for x in rows if _market_is_match_odds(x)]),
+            "ao_vivo_identificados": len(live),
+            "com_marketid": len([x for x in rows if x.get("market_id")]),
+            "filename": filename,
+        })
+    except Exception as e:
+        with LOCK:
+            BETFAIR_VISIBLE["error"] = str(e)
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
+
+
+@app.get("/api/betfair/visible")
+def get_betfair_visible():
+    with LOCK:
+        rows = list(BETFAIR_VISIBLE.get("rows") or [])
+    return JSONResponse({
+        "total": len(rows),
+        "match_odds": len([x for x in rows if _market_is_match_odds(x)]),
+        "ao_vivo_identificados": len(betfair_live_markets(rows)),
+        "com_marketid": len([x for x in rows if x.get("market_id")]),
+        "rows": rows,
+    })
 
 
 @app.get("/api/betfair/live")
@@ -1596,7 +1860,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.10"}
+    return {"ok": True, "versao": "3.11"}
 
 
 @app.get("/", response_class=HTMLResponse)

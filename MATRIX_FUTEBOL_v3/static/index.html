@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.10 • BETFAIR AO VIVO • MarketId obrigatório • Bf Bot Manager</div>
+      <div class="sub">V3.11 • DADOS VISÍVEIS • BETFAIR AO VIVO • MarketId</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -128,6 +128,23 @@ function betBox(x, idx){
 
 let rendered=[];
 function renderGame(x, idx){
+  if(x.status==='AO VIVO BETFAIR'){
+    const liveLabel=x.live_source==='CONFIRMADO'?'AO VIVO CONFIRMADO':'PROVÁVEL AO VIVO • BETFAIR';
+    return `<div class="item">
+      <div class="row"><strong>${esc(x.jogo||'-')}</strong><span class="badge live">${liveLabel}</span></div>
+      <div class="muted">${esc(x.market_name||'Resultado da partida')} • ${esc(x.horario||'')}</div>
+      ${x.tempo_jogo?`<div class="row"><span>Tempo</span><b>${esc(x.tempo_jogo)}</b></div>`:''}
+      ${x.placar?`<div class="row"><span>Placar</span><b>${esc(x.placar)}</b></div>`:''}
+      ${x.market_id?`<div class="row"><span>Market ID</span><b>${esc(x.market_id)}</b></div>`:''}
+      ${x.favorite_selection?`<div class="row"><span>1º favorito Betfair</span><b>${esc(x.favorite_selection)}</b></div>`:''}
+      ${x.favorite_odd?`<div class="row"><span>Odd do favorito</span><b>${esc(x.favorite_odd)}</b></div>`:''}
+      ${x.total_matched?`<div class="row"><span>Total correspondido</span><b>${esc(x.total_matched)}</b></div>`:''}
+      <div class="reason">${x.live_source==='CONFIRMADO'?
+        'Betfair informou o estado ao vivo.':
+        'O BF Bot Manager exportou o mercado como OPEN e o horário de início já passou. Como a coluna IP veio vazia, o MATRIX marca como provável ao vivo.'}</div>
+    </div>`;
+  }
+
   return `<div class="item">
     <div class="row"><strong>${esc(x.jogo||'-')}</strong>${badge(x)}</div>
     <div class="muted">${esc(x.liga||'')} • ${esc(x.pais||'')} • ${esc(x.horario||'')}</div>
@@ -277,6 +294,16 @@ function renderBetfairMarket(x){
   </div>`;
 }
 
+
+async function readBetfairVisibleCsv(file){
+  const buf=await file.arrayBuffer();
+  try{return new TextDecoder('windows-1252').decode(buf);}
+  catch(e){
+    try{return new TextDecoder('iso-8859-1').decode(buf);}
+    catch(_){return await file.text();}
+  }
+}
+
 function renderBetfair(){
   const b=(state&&state.betfair_mirror)||{};
   const markets=b.markets||[];
@@ -285,22 +312,31 @@ function renderBetfair(){
       <div class="row"><strong>Espelho dos mercados do BF Bot Manager</strong>
         <span class="badge">${markets.length} MERCADOS</span></div>
       <div class="smallgrid">
-        <div class="mini">Importados<b>${b.total||0}</b></div>
-        <div class="mini">Match Odds<b>${b.match_odds||0}</b></div>
-        <div class="mini">Linkados SportMonks<b>${b.linkados_sportmonks||0}</b></div>
+        <div class="mini">Mercados / IDs<b>${b.total||0}</b></div>
+        <div class="mini">Match Odds / IDs<b>${b.match_odds||0}</b></div>
+        <div class="mini">Dados visíveis<b>${b.dados_visiveis||0}</b></div>
+        <div class="mini">Match Odds visíveis<b>${b.match_odds_visiveis||0}</b></div>
         <div class="mini">Ao vivo identificados<b>${b.ao_vivo_identificados||0}</b></div>
+        <div class="mini">Linkados SportMonks<b>${b.linkados_sportmonks||0}</b></div>
       </div>
       <div class="reason">
-        O MATRIX mostra aqui o último CSV exportado do BF Bot Manager. 
-        O BF Bot Manager não oferece uma auto-exportação pública de mercados.
+        O MATRIX usa <b>dois arquivos juntos</b>: 
+        <b>Exportar mercados</b> para MarketId/EventId e
+        <b>Exportar todos os dados visíveis</b> para Status, horário, favorito e odd.
+        A aba AO VIVO passa a usar a Betfair mesmo sem SportMonks.
       </div>
       <input id="bfMarketFile" type="file" accept=".csv,text/csv" style="display:none">
+      <input id="bfVisibleFile" type="file" accept=".csv,text/csv" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button class="btn2" onclick="document.getElementById('bfMarketFile').click()">IMPORTAR MERCADOS BFBOT</button>
+        <button class="btn2" onclick="document.getElementById('bfMarketFile').click()">1. IMPORTAR MERCADOS / IDs</button>
+        <button class="btn2" onclick="document.getElementById('bfVisibleFile').click()">2. IMPORTAR DADOS VISÍVEIS</button>
         <a class="btn2" href="https://livevideo.betfair.bet.br/" target="_blank" rel="noopener">📺 BETFAIR TV OFICIAL</a>
         <a class="btn2" href="https://www.betfair.bet.br/exchange/plus/inplay/all?filter-by=live-video" target="_blank" rel="noopener">🔴 EXCHANGE AO VIVO</a>
       </div>
-      <div class="muted" style="margin-top:8px">Arquivo: ${esc(b.filename||'nenhum')} • atualização: ${esc(b.updated_at||'—')}</div>
+      <div class="muted" style="margin-top:8px">
+        Mercados/IDs: ${esc(b.filename||'nenhum')} • ${esc(b.updated_at||'—')}<br>
+        Dados visíveis: ${esc(b.visible_filename||'nenhum')} • ${esc(b.visible_updated_at||'—')}
+      </div>
     </div>
     ${markets.length ? markets.map(renderBetfairMarket).join('') :
       '<div class="item"><b>Nenhum mercado Betfair importado ainda.</b><div class="muted">No BF Bot Manager use EVENTOS E MERCADOS → Export markets (ou Export all visible data) e importe o CSV aqui.</div></div>'}
@@ -326,24 +362,63 @@ function renderBetfair(){
       render();
     };
   }
+  const visibleInput=$('bfVisibleFile');
+  if(visibleInput){
+    visibleInput.onchange=async e=>{
+      const file=e.target.files&&e.target.files[0];
+      if(!file)return;
+      try{
+        const text=await readBetfairVisibleCsv(file);
+        localStorage.setItem('matrix_betfair_visible_csv',text);
+        localStorage.setItem('matrix_betfair_visible_name',file.name);
+        const r=await fetch('/api/betfair/visible/import',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({csv:text,filename:file.name})
+        });
+        const j=await r.json();
+        if(!j.ok)throw new Error(j.erro||'erro');
+        await refresh();
+        mode='betfair';
+        document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.mode==='betfair'));
+        render();
+        alert(`Importado: ${j.total} linhas • ${j.match_odds} Match Odds • ${j.ao_vivo_identificados} AO VIVO identificado(s).`);
+      }catch(err){
+        alert('Falha ao importar dados visíveis: '+err.message);
+      }
+    };
+  }
+
 }
 
 let bfRestoreTried=false;
 async function restoreBetfairCsv(){
   if(bfRestoreTried)return;
   bfRestoreTried=true;
-  const text=localStorage.getItem('matrix_betfair_markets_csv');
-  if(!text)return;
-  if(state&&state.betfair_mirror&&state.betfair_mirror.total)return;
   try{
-    await fetch('/api/betfair/markets/import',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        csv:text,
-        filename:localStorage.getItem('matrix_betfair_markets_name')||'markets.csv'
-      })
-    });
+    const markets=localStorage.getItem('matrix_betfair_markets_csv');
+    if(markets && !(state&&state.betfair_mirror&&state.betfair_mirror.total)){
+      await fetch('/api/betfair/markets/import',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          csv:markets,
+          filename:localStorage.getItem('matrix_betfair_markets_name')||'mercado_betfair.csv'
+        })
+      });
+    }
+
+    const visible=localStorage.getItem('matrix_betfair_visible_csv');
+    if(visible && !(state&&state.betfair_mirror&&state.betfair_mirror.dados_visiveis)){
+      await fetch('/api/betfair/visible/import',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          csv:visible,
+          filename:localStorage.getItem('matrix_betfair_visible_name')||'betfair_visiveis.csv'
+        })
+      });
+    }
   }catch(e){}
 }
 
@@ -417,7 +492,14 @@ async function refresh(){
     $('status').textContent=state.status||'-';
     $('jogos').textContent=state.jogos_encontrados||0;
     $('lib').textContent=(state.libertadores||[]).length;
-    $('live').textContent=(state.ao_vivo||[]).length;
+    {
+      const liveKeys=new Set();
+      [...(state.betfair_ao_vivo||[]), ...(state.ao_vivo||[])].forEach(x=>{
+        liveKeys.add(String(x.event_id||x.fixture_id||x.jogo||''));
+      });
+      liveKeys.delete('');
+      $('live').textContent=liveKeys.size;
+    }
     $('intl').textContent=(state.internacionais||[]).length;
     $('odds').textContent=state.jogos_com_odds||0;
     $('signals').textContent=(state.sinais||[]).length;
