@@ -202,7 +202,7 @@ main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:1
 <style id="v67-realfeed-css">
 .realFeedBar{margin:10px 0;padding:10px 12px;border:1px solid #285142;background:#0c1d17;border-radius:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .realFeedBar strong{color:#45e3a1}.realGames{display:grid;gap:9px}
-.realGame{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px;border:1px solid #2b3e37;border-radius:10px;background:#0d1713}
+.realGame{display:block;padding:12px;border:1px solid #2b3e37;border-radius:10px;background:#0d1713}.realGameTop{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}.realInlineOdds{margin-top:10px}.realInlineMarket{margin-top:8px}.realInlineMarket h5{margin:0 0 5px;color:#a9bbb4}.realInlineGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.realInlineOdd{background:#18251f;border:1px solid #315044;border-radius:7px;padding:8px;color:#fff;text-align:left}.realInlineOdd strong{float:right;color:#ffe75a}.realInlineOdd small{display:block;color:#8fa39b;margin-top:3px}@media(max-width:600px){.realInlineGrid{grid-template-columns:1fr 1fr}}
 .realTeam{font-weight:800;margin:5px 0}.realTeam img{width:25px;height:25px;object-fit:contain;border-radius:50%;background:#fff;vertical-align:middle;margin-right:7px}
 .realMeta{font-size:11px;color:#9fb0a9}.realOddsBtn{padding:9px 12px;border-radius:8px;border:1px solid #34644f;background:#113126;color:#61e8ad;font-weight:900}
 .realError{padding:12px;border:1px solid #6e3d28;background:#27160e;color:#ffc2a3;border-radius:9px}
@@ -608,18 +608,35 @@ async function loadRealFixtures(){
     box.innerHTML=`<div class="realFeedBar"><strong>SPORTMONKS • DADOS REAIS</strong><span>${j.date} • ${j.count} jogos</span></div>
       <div class="realGames">${(j.fixtures||[]).map(f=>`
         <div class="realGame">
-          <div>
+          <div class="realGameTop"><div>
             <div class="realMeta">${f.league?.name||'Liga'} • ${f.starting_at||''}</div>
             <div class="realTeam">${f.home?.image_path?`<img src="${f.home.image_path}">`:''}${f.home?.name||'Mandante'}</div>
             <div class="realTeam">${f.away?.image_path?`<img src="${f.away.image_path}">`:''}${f.away?.name||'Visitante'}</div>
-            <div class="realMeta">${f.has_odds?'✓ Possui odds':'Sem odds no feed'}</div>
-          </div>
-          ${f.has_odds?`<button class="realOddsBtn" data-real-odds="${f.id}">VER ODDS</button>`:''}
+          </div>${f.has_odds?`<button class="realOddsBtn" data-real-odds="${f.id}">TODOS OS MERCADOS</button>`:''}</div>
+          <div class="realInlineOdds" id="real-inline-${f.id}">${f.has_odds?'Carregando principais odds reais...':'Sem odds disponíveis neste feed/plano'}</div>
         </div>`).join('')}</div>`;
     document.querySelectorAll('[data-real-odds]').forEach(b=>b.onclick=()=>openRealOdds(b.dataset.realOdds));
+    (j.fixtures||[]).filter(f=>f.has_odds).slice(0,12).forEach(f=>loadInlineRealOdds(f.id));
   }catch(e){
     box.innerHTML=`<div class="realError"><b>Feed real indisponível.</b><br>${e.message}</div>`;
   }
+}
+
+async function loadInlineRealOdds(id){
+  const box=document.querySelector('#real-inline-'+id); if(!box)return;
+  try{
+    const j=await api('/api/real/fixtures/'+id+'/odds');
+    const grouped={};
+    (j.odds||[]).forEach(o=>{
+      const name=o.market?.name||o.market_description||('Mercado '+o.market_id);
+      (grouped[name]??=[]).push(o);
+    });
+    const preferred=['Fulltime Result','Match Winner','3Way Result','Asian Handicap','Over/Under','Goals Over/Under','Both Teams To Score'];
+    let entries=Object.entries(grouped);
+    entries.sort((a,b)=>{const ai=preferred.findIndex(x=>a[0].toLowerCase().includes(x.toLowerCase())),bi=preferred.findIndex(x=>b[0].toLowerCase().includes(x.toLowerCase()));return (ai<0?99:ai)-(bi<0?99:bi)});
+    entries=entries.slice(0,3);
+    box.innerHTML=entries.map(([name,items])=>`<div class="realInlineMarket"><h5>${name}</h5><div class="realInlineGrid">${items.slice(0,6).map(o=>`<button class="realInlineOdd" type="button"><span>${o.label||'Seleção'}</span><strong>${Number(o.value||0).toFixed(2)}</strong><small>${o.bookmaker?.name||''}</small></button>`).join('')}</div></div>`).join('')||'<span class="realMeta">Nenhuma odd retornada.</span>';
+  }catch(e){box.innerHTML='<span class="realMeta">Não foi possível carregar as odds desta partida.</span>'}
 }
 
 async function openRealOdds(id){
