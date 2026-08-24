@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.14 • AUTO DEMO • VALOR NA SELEÇÃO • BETFAIR</div>
+      <div class="sub">V3.16 • CONTADOR AUTO DEMO CORRIGIDO • HISTÓRICO • BETFAIR</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -43,7 +43,8 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Sinais aprovados</div><div id="signals" class="big">0</div></div>
     <div class="card"><div class="label">Minhas apostas</div><div id="bets" class="big">0</div></div>
     <div class="card"><div class="label">Saldo DEMO</div><div id="demoBalance" class="big">R$ 1.000,00</div></div>
-    <div class="card"><div class="label">Auto DEMO</div><div id="demoAutoCount" class="big">0</div></div>
+    <div class="card"><div class="label">Auto DEMO feitas</div><div id="demoAutoCount" class="big">0</div></div>
+    <div class="card"><div class="label">Oportunidades agora</div><div id="demoOpportunityCount" class="big">0</div></div>
   </div>
 
   <div class="tabs">
@@ -73,7 +74,13 @@ const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function getBets(){try{return JSON.parse(localStorage.getItem('matrix_bets_v33')||'[]')}catch(e){return[]}}
-function saveBets(v){localStorage.setItem('matrix_bets_v33',JSON.stringify(v));$('bets').textContent=v.length}
+function saveBets(v){
+  localStorage.setItem('matrix_bets_v33',JSON.stringify(v));
+  if($('bets'))$('bets').textContent=v.length;
+  if($('demoAutoCount')){
+    $('demoAutoCount').textContent=v.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO').length;
+  }
+}
 
 function normText(s){
   return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -92,8 +99,8 @@ function demoStats(){
     }else if(b.status==='PERDEU'){
       losses++;
       realized-=stake;
-    }else if(b.status==='ANULADA'){
-      // zero
+    }else if(b.status==='ANULADA'||b.status==='CANCELADA'){
+      // zero: stake is not locked and P/L remains R$ 0,00
     }else{
       pending++;
       locked+=stake;
@@ -104,8 +111,22 @@ function demoStats(){
 
 function updateDemoCounters(){
   const s=demoStats();
+  const allBets=getBets();
+  const autoBets=allBets.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO');
+
   if($('demoBalance'))$('demoBalance').textContent=money(s.available);
-  if($('demoAutoCount'))$('demoAutoCount').textContent=((state&&state.demo_auto&&state.demo_auto.total_candidatos)||0);
+
+  // Agora este contador representa apostas realmente registradas,
+  // e não as oportunidades/candidatos atuais.
+  if($('demoAutoCount'))$('demoAutoCount').textContent=autoBets.length;
+
+  // O número de oportunidades atuais fica separado.
+  if($('demoOpportunityCount')){
+    $('demoOpportunityCount').textContent=((state&&state.demo_auto&&state.demo_auto.total_candidatos)||0);
+  }
+
+  // Total absoluto de apostas no histórico.
+  if($('bets'))$('bets').textContent=allBets.length;
 }
 
 function settleDemoBets(){
@@ -208,20 +229,23 @@ function currentMonthBets(){
 
 function renderMonthlySummary(){
   const bets=currentMonthBets();
-  let wins=0,losses=0,pending=0,profit=0,stakes=0;
+  let wins=0,losses=0,pending=0,canceled=0,profit=0,stakes=0;
   bets.forEach(b=>{
     stakes+=Number(b.stake||0);
     if(b.status==='GANHOU'){wins++;profit+=Number(b.lucro_real??b.lucro??0);}
     else if(b.status==='PERDEU'){losses++;profit-=Number(b.stake||0);}
+    else if(b.status==='CANCELADA'||b.status==='ANULADA'){canceled++;}
     else pending++;
   });
   return `<div class="item">
     <div class="row"><strong>Resumo do mês</strong><span class="badge">DEMO</span></div>
     <div class="smallgrid">
-      <div class="mini">Apostas<b>${bets.length}</b></div>
+      <div class="mini">Apostas totais<b>${bets.length}</b></div>
+      <div class="mini">Auto DEMO feitas<b>${bets.filter(b=>b.auto_demo===true || b.modo==='AUTO DEMO').length}</b></div>
       <div class="mini">Vitórias<b>${wins}</b></div>
       <div class="mini">Derrotas<b>${losses}</b></div>
       <div class="mini">Pendentes<b>${pending}</b></div>
+      <div class="mini">Canceladas<b>${canceled}</b></div>
       <div class="mini">Valor apostado<b>${money(stakes)}</b></div>
       <div class="mini">Lucro/Prejuízo<b>${money(profit)}</b></div>
     </div>
@@ -373,20 +397,61 @@ function renderGame(x, idx){
   </div>`;
 }
 
+
+window.cancelDemoBet=function(id){
+  const bets=getBets();
+  const i=bets.findIndex(b=>String(b.id)===String(id));
+  if(i<0){
+    alert('Aposta não encontrada.');
+    return;
+  }
+
+  const b=bets[i];
+  if(b.status!=='AGUARDANDO RESULTADO'){
+    alert('Essa aposta já está '+String(b.status||'FINALIZADA')+' e não pode ser cancelada.');
+    return;
+  }
+
+  const confirmar=confirm(
+    `Cancelar esta aposta DEMO?\n\n${b.jogo}\n${b.selecao}\nValor: ${money(b.stake)}\n\nO valor será liberado novamente no saldo DEMO.`
+  );
+  if(!confirmar)return;
+
+  b.status='CANCELADA';
+  b.cancelada_em=new Date().toLocaleString('pt-BR');
+  b.retorno_real=Number(b.stake||0);
+  b.lucro_real=0;
+  b.motivo_cancelamento='Cancelada manualmente antes do resultado.';
+
+  saveBets(bets);
+  updateDemoCounters();
+  render();
+
+  alert(`Aposta DEMO cancelada. ${money(b.stake)} voltou para o saldo disponível.`);
+};
+
 function renderBet(b){
+  const pending=(b.status||'AGUARDANDO RESULTADO')==='AGUARDANDO RESULTADO';
   return `<div class="item">
     <div class="row"><strong>${esc(b.jogo)}</strong><span class="badge">${b.auto_demo?'AUTO DEMO':'SIMULAÇÃO'}</span></div>
     <div class="muted">${esc(b.liga||'')} • ${esc(b.horario||'')}</div>
     <div class="row"><span>Apostado em</span><b>${esc(b.selecao)}</b></div>
     <div class="row"><span>Mercado</span><b>${esc(b.mercado)}</b></div>
     <div class="row"><span>Valor apostado</span><b>${money(b.stake)}</b></div>
-    <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div><div class="row"><span>Fonte da odd</span><b>${esc(b.fonte_odd||"—")}</b></div>
+    <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div>
+    <div class="row"><span>Fonte da odd</span><b>${esc(b.fonte_odd||"—")}</b></div>
     <div class="row"><span>Retorno potencial</span><b class="money">${money(b.retorno)}</b></div>
     <div class="row"><span>Lucro potencial</span><b class="money">${money(b.lucro)}</b></div>
     ${b.valor_na_selecao?`<div class="row"><span>Valor no nome/seleção</span><b>${money(b.valor_na_selecao)}</b></div>`:''}
     ${b.status==='GANHOU'||b.status==='PERDEU'?`<div class="row"><span>Resultado realizado</span><b class="money">${money(b.lucro_real||0)}</b></div>`:''}
+    ${b.status==='CANCELADA'?`<div class="row"><span>Resultado realizado</span><b class="money">R$ 0,00</b></div>`:''}
     <div class="row"><span>Status</span><b>${esc(b.status||'AGUARDANDO RESULTADO')}</b></div>
+    ${b.cancelada_em?`<div class="muted">Cancelada em ${esc(b.cancelada_em)}</div>`:''}
     <div class="muted" style="margin-top:8px">Registrada em ${esc(b.criada_em)}</div>
+
+    ${pending
+      ?`<button class="btn2" style="margin-top:12px;border-color:#ff6b6b;color:#ff8c8c" onclick="cancelDemoBet('${b.id}')">✖ CANCELAR APOSTA DEMO</button>`
+      :`<button class="btn2" style="margin-top:12px;opacity:.45;cursor:not-allowed" disabled>${b.status==='CANCELADA'?'APOSTA CANCELADA':'APOSTA FINALIZADA'}</button>`}
   </div>`;
 }
 
@@ -780,7 +845,7 @@ $('go').onclick=async()=>{
   }
 };
 
-$('bets').textContent=getBets().length;
+updateDemoCounters();
 refresh();
 setInterval(refresh,5000);
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}

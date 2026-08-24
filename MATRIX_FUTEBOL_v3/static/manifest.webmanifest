@@ -1,7 +1,7 @@
 {
   "name": "MATRIX - FUTEBOL",
   "short_name": "MATRIX FUTEBOL",
-  "start_url": "/?v=3.14",
+  "start_url": "/?v=3.16",
   "display": "standalone",
   "background_color": "#0b1117",
   "theme_color": "#0b1117",
