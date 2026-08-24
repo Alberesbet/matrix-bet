@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -8,87 +7,116 @@
 <title>MATRIX - FUTEBOL</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
 <style>
-body{margin:0;background:#0b1117;color:#eef5f1;font-family:Arial,sans-serif}
-.wrap{max-width:900px;margin:auto;padding:18px}
-h1{margin:0 0 4px;font-size:28px} .sub{color:#8ea59a;margin-bottom:18px}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.card{background:#121b22;border:1px solid #24333c;border-radius:16px;padding:16px}
-.big{font-size:28px;font-weight:700;color:#46e6a2}
-.label{font-size:12px;color:#8ea59a;text-transform:uppercase}
-.signal{margin-top:12px;padding:14px;border-radius:14px;background:#111921;border:1px solid #253842}
-.row{display:flex;justify-content:space-between;gap:10px;margin-top:8px}
-.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#173127;color:#5ef0b1;font-size:12px}
-.err{color:#ff8f8f}
-.ok{color:#5ef0b1;font-weight:700}.muted{color:#8ea59a;font-size:12px}
-@media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{padding:14px}h1{font-size:24px}}
+*{box-sizing:border-box}body{margin:0;background:#0b1117;color:#eef5f1;font-family:Arial,sans-serif}
+.wrap{max-width:980px;margin:auto;padding:16px}.top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+h1{margin:0 0 4px;font-size:27px}.sub{color:#8ea59a;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.card{background:#121b22;border:1px solid #24333c;border-radius:16px;padding:14px}.big{font-size:26px;font-weight:700;color:#46e6a2}
+.label{font-size:11px;color:#8ea59a;text-transform:uppercase}.signal{margin-top:10px;padding:14px;border-radius:14px;background:#111921;border:1px solid #253842}
+.row{display:flex;justify-content:space-between;gap:12px;margin-top:7px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#173127;color:#5ef0b1;font-size:11px;font-weight:700}
+.badge.wait{background:#352c16;color:#ffd96c}.badge.bad{background:#3b1e1e;color:#ffaaaa}.err{color:#ff8f8f}.ok{color:#5ef0b1;font-weight:700}
+.muted{color:#8ea59a;font-size:12px}.sectionTitle{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:7px}
+.btn{border:0;border-radius:10px;padding:11px 15px;background:#25c77f;color:#07120d;font-weight:900;cursor:pointer}.btn:disabled{opacity:.5}
+.tabs{display:flex;gap:7px;margin-top:12px}.tab{flex:1;border:1px solid #2b3e48;background:#101820;color:#b8c6c0;padding:10px;border-radius:9px;font-weight:800}.tab.on{background:#173127;color:#5ef0b1;border-color:#2d7755}
+.reason{margin-top:8px;padding-top:8px;border-top:1px solid #253842;color:#c5d1cc;font-size:12px}
+@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:12px}h1{font-size:23px}.row{font-size:13px}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>MATRIX - FUTEBOL</h1>
-  <div class="sub">V3 • sinais detalhados • SportMonks</div>
-
-  <div class="grid">
-    <div class="card">
-      <div class="label">Status</div>
-      <div id="status" class="big">...</div>
-    </div>
-    <div class="card">
-      <div class="label">Jogos encontrados</div>
-      <div id="jogos" class="big">0</div>
-    </div>
-    <div class="card">
-      <div class="label">Sinais</div>
-      <div id="qtd" class="big">0</div>
-    </div>
-    <div class="card">
-      <div class="label">Última atualização</div>
-      <div id="hora">...</div>
-    </div>
+  <div class="top">
+    <div><h1>MATRIX - FUTEBOL</h1><div class="sub">V3.1 • análise 24h • diagnóstico • SportMonks</div></div>
+    <button id="analisar" class="btn">ANALISAR AGORA</button>
   </div>
 
-  <div class="card" style="margin-top:12px">
-    <div class="row">
-      <strong>Sinais encontrados</strong>
+  <div class="grid">
+    <div class="card"><div class="label">Status</div><div id="status" class="big">...</div></div>
+    <div class="card"><div class="label">Jogos 24h</div><div id="jogos" class="big">0</div></div>
+    <div class="card"><div class="label">Com odds</div><div id="comOdds" class="big">0</div></div>
+    <div class="card"><div class="label">Analisados 1X2</div><div id="analisados" class="big">0</div></div>
+    <div class="card"><div class="label">Sinais aprovados</div><div id="qtd" class="big">0</div></div>
+    <div class="card"><div class="label">Última atualização</div><div id="hora" style="font-size:13px;margin-top:8px">...</div></div>
+  </div>
+
+  <div class="tabs">
+    <button id="tabSinais" class="tab on">SINAIS</button>
+    <button id="tabTodos" class="tab">TODOS OS JOGOS</button>
+  </div>
+
+  <div class="card" style="margin-top:10px">
+    <div class="sectionTitle">
+      <strong id="tituloLista">Sinais encontrados</strong>
       <span class="badge">SIMULAÇÃO</span>
     </div>
     <div id="lista"></div>
     <div id="erro" class="err"></div>
   </div>
 </div>
+
 <script>
+let ultimo=null, modoLista='sinais';
+const $=id=>document.getElementById(id);
+
+function badge(status){
+  if(status==='APROVADO')return '<span class="badge">APROVADO</span>';
+  if(status==='AGUARDAR')return '<span class="badge wait">AGUARDAR</span>';
+  return `<span class="badge bad">${status||'SEM SINAL'}</span>`;
+}
+
+function renderLista(){
+  if(!ultimo)return;
+  const dados=modoLista==='sinais'?(ultimo.sinais||[]):(ultimo.diagnostico||[]);
+  $('tituloLista').textContent=modoLista==='sinais'?'Sinais encontrados':'Todos os jogos analisados';
+  $('lista').innerHTML='';
+  dados.forEach(s=>{
+    const el=document.createElement('div'); el.className='signal';
+    const temOdd=s.odd!==undefined;
+    el.innerHTML=`<div class="sectionTitle"><strong>${s.jogo||'-'}</strong>${badge(s.status_sinal||s.status)}</div>
+      <div class="muted">${s.liga||''}${s.horario?' • '+s.horario:''}</div>
+      ${temOdd?`
+        <div class="row"><span>Mercado</span><b>${s.mercado||'1X2'}</b></div>
+        <div class="row"><span>Entrada sugerida</span><b>${s.selecao||'-'}</b></div>
+        <div class="row"><span>Odd mediana</span><b>${s.odd}</b></div>
+        <div class="row"><span>Melhor odd recebida</span><b>${s.melhor_odd||s.odd}</b></div>
+        <div class="row"><span>Casas/cotações</span><b>${s.casas||'-'}</b></div>
+        <div class="row"><span>Probabilidade implícita</span><b>${s.prob}%</b></div>
+        <div class="row"><span>Stake de simulação</span><b>R$ ${s.stake}</b></div>`:''}
+      <div class="reason"><b>Motivo:</b> ${s.motivo||'—'}</div>`;
+    $('lista').appendChild(el);
+  });
+  if(!dados.length){
+    $('lista').innerHTML='<p class="muted">Nenhum item nessa categoria neste momento. Abra “TODOS OS JOGOS” para ver o diagnóstico.</p>';
+  }
+}
+
 async function atualizar(){
   try{
     const r=await fetch('/api/status',{cache:'no-store'});
-    const d=await r.json();
-    document.getElementById('status').textContent=d.status||'-';
-    document.getElementById('jogos').textContent=d.jogos_encontrados||0;
-    document.getElementById('qtd').textContent=(d.sinais||[]).length;
-    document.getElementById('hora').textContent=d.ultima_atualizacao||'-';
-    document.getElementById('erro').textContent=d.erro?('Erro: '+d.erro):'';
-    const lista=document.getElementById('lista');
-    lista.innerHTML='';
-    (d.sinais||[]).forEach(s=>{
-      const el=document.createElement('div');
-      el.className='signal';
-      el.innerHTML=`<strong>${s.jogo}</strong>
-        <div class="row"><span>Horário</span><b>${s.horario||'-'}</b></div>
-        <div class="row"><span>Mercado</span><b>${s.mercado||'1X2'}</b></div>
-        <div class="row"><span>Entrada sugerida</span><b>${s.selecao}</b></div>
-        <div class="row"><span>Odd</span><b>${s.odd}</b></div>
-        <div class="row"><span>Probabilidade estimada</span><b>${s.prob}%</b></div>
-        <div class="muted">${s.prob_tipo||''}</div>
-        <div class="row"><span>Status</span><b class="ok">${s.status_sinal||'APROVADO'}</b></div>
-        <div class="row"><span>Stake de simulação</span><b>R$ ${s.stake}</b></div>`;
-      lista.appendChild(el);
-    });
-    if((d.sinais||[]).length===0){
-      lista.innerHTML='<p style="color:#8ea59a">Nenhum sinal dentro dos filtros agora.</p>';
-    }
+    ultimo=await r.json();
+    $('status').textContent=ultimo.status||'-';
+    $('jogos').textContent=ultimo.jogos_encontrados||0;
+    $('comOdds').textContent=ultimo.jogos_com_odds||0;
+    $('analisados').textContent=ultimo.jogos_analisados||0;
+    $('qtd').textContent=(ultimo.sinais||[]).length;
+    $('hora').textContent=ultimo.ultima_atualizacao||'-';
+    $('erro').textContent=ultimo.erro?('Erro: '+ultimo.erro):'';
+    renderLista();
   }catch(e){
-    document.getElementById('erro').textContent='Falha ao atualizar painel.';
+    $('erro').textContent='Falha ao atualizar painel.';
   }
 }
+
+$('analisar').onclick=async()=>{
+  const b=$('analisar'); b.disabled=true; b.textContent='ANALISANDO...';
+  try{
+    const r=await fetch('/api/analisar',{method:'POST',cache:'no-store'});
+    ultimo=await r.json(); renderLista(); await atualizar();
+  }catch(e){$('erro').textContent='Falha ao iniciar análise.'}
+  finally{b.disabled=false;b.textContent='ANALISAR AGORA'}
+};
+
+$('tabSinais').onclick=()=>{modoLista='sinais';$('tabSinais').classList.add('on');$('tabTodos').classList.remove('on');renderLista()};
+$('tabTodos').onclick=()=>{modoLista='todos';$('tabTodos').classList.add('on');$('tabSinais').classList.remove('on');renderLista()};
+
 atualizar(); setInterval(atualizar,15000);
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}
 </script>
