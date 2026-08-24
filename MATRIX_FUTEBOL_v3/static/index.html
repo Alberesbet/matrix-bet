@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.23">
+<body data-matrix-version="3.24">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.23 • PONTE BF BOT • RESULTADOS AUTOMÁTICOS • AO VIVO FRESCO</div>
+      <div class="sub">V3.24 • PONTE BF BOT CORRIGIDA • HEARTBEAT • CSV ROBUSTO</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -80,6 +80,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Sincronização</div><div id="cloudSyncStatus" class="big" style="font-size:18px">CONECTANDO</div></div>
     <div class="card"><div class="label">Fonte AO VIVO</div><div id="liveSourceStatus" class="big" style="font-size:16px">...</div></div>
     <div class="card"><div class="label">Ponte BF Bot</div><div id="bfbotBridgeStatus" class="big" style="font-size:16px">AGUARDANDO</div></div>
+    <div class="card"><div class="label">Dados BF Bot</div><div id="bfbotDataStatus" class="big" style="font-size:16px">SEM DADOS</div></div>
   </div>
 
   <div class="tabs">
@@ -233,6 +234,11 @@ function updateDemoCounters(){
   if($('bfbotBridgeStatus')){
     const bridge=(state&&state.bfbot_bridge)||{};
     $('bfbotBridgeStatus').textContent=bridge.status||'AGUARDANDO';
+  }
+  if($('bfbotDataStatus')){
+    const bridge=(state&&state.bfbot_bridge)||{};
+    const rows=Number(bridge.last_rows||0);
+    $('bfbotDataStatus').textContent=(bridge.data_status||'SEM DADOS')+(rows?` • ${rows}`:'');
   }
 }
 

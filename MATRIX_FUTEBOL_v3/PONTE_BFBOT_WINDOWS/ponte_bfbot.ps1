@@ -1,7 +1,11 @@
 ﻿$ErrorActionPreference="Continue"
+
 $MatrixUrl="https://matrix-bet.onrender.com"
-$Endpoint="$MatrixUrl/api/bfbot/bridge/import"
-$IntervalSeconds=10
+$ImportEndpoint="$MatrixUrl/api/bfbot/bridge/import"
+$HeartbeatEndpoint="$MatrixUrl/api/bfbot/bridge/heartbeat"
+$IntervalSeconds=8
+$HeartbeatSeconds=15
+$BridgeVersion="3.24"
 
 $Folders=@(
   [Environment]::GetFolderPath("Desktop"),
@@ -11,61 +15,128 @@ $Folders=@(
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 
 $Seen=@{}
+$Attempted=@{}
+$LastHeartbeat=[DateTime]::MinValue
 
-function HashText([string]$Text){
+function HashBytes([byte[]]$Bytes){
   $sha=[System.Security.Cryptography.SHA256]::Create()
   try{
-    $bytes=[System.Text.Encoding]::UTF8.GetBytes($Text)
-    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-","")
+    return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace("-","")
   } finally {$sha.Dispose()}
 }
 
-function LooksLikeBFBot([string]$Text){
-  if(-not $Text){return $false}
-  $h=$Text.Substring(0,[Math]::Min($Text.Length,16000)).ToLowerInvariant()
-  $tokens=@("evento/mercado","marketid","market id","id do mercado","hora de início","hora de inicio","total correspondido","vencedor(es)","vencedores","1º favorito","1o favorito")
-  foreach($t in $tokens){if($h.Contains($t)){return $true}}
+function ShouldIgnore($File){
+  $n=$File.Name.ToLowerInvariant()
+  if($n -like "test_*"){return $true}
+  if($n -like "tips*.csv"){return $true}
+  if($n -like "*matrix*tips*.csv"){return $true}
+  if($File.Length -lt 8){return $true}
   return $false
 }
 
-function SendCsv($File){
+function SendHeartbeat(){
   try{
-    Start-Sleep -Milliseconds 700
-    $text=Get-Content -LiteralPath $File.FullName -Raw -Encoding UTF8
-    if(-not (LooksLikeBFBot $text)){return}
-    $hash=HashText $text
-    if($Seen.ContainsKey($File.FullName) -and $Seen[$File.FullName] -eq $hash){return}
+    $body=@{
+      computer=$env:COMPUTERNAME
+      bridge_version=$BridgeVersion
+    } | ConvertTo-Json
+    Invoke-RestMethod -Uri $HeartbeatEndpoint -Method Post -ContentType "application/json" -Body $body -TimeoutSec 12 | Out-Null
+  }catch{}
+  $script:LastHeartbeat=Get-Date
+}
 
-    $body=@{filename=$File.Name;kind="auto";csv=$text} | ConvertTo-Json -Depth 4
-    $r=Invoke-RestMethod -Uri $Endpoint -Method Post -ContentType "application/json; charset=utf-8" -Body $body -TimeoutSec 25
+function SendCsv($File){
+  if(ShouldIgnore $File){return}
 
-    if($r.ok){
-      $Seen[$File.FullName]=$hash
-      $t=Get-Date -Format "HH:mm:ss"
-      Write-Host "[$t] ENVIADO: $($File.Name) | tipo=$($r.kind) | linhas=$($r.rows) | ao vivo=$($r.live) | resultados=$($r.resultados_com_vencedor)" -ForegroundColor Green
-      if($r.liquidacao){
-        Write-Host "       Finalizadas agora: $($r.liquidacao.alteradas) | Pendentes: $($r.liquidacao.pendentes)" -ForegroundColor Cyan
+  try{
+    Start-Sleep -Milliseconds 600
+    [byte[]]$bytes=[IO.File]::ReadAllBytes($File.FullName)
+    $hash=HashBytes $bytes
+
+    if($Seen.ContainsKey($File.FullName) -and $Seen[$File.FullName] -eq $hash){
+      return
+    }
+
+    if($Attempted.ContainsKey($File.FullName) -and $Attempted[$File.FullName] -eq $hash){
+      return
+    }
+
+    $Attempted[$File.FullName]=$hash
+
+    $body=@{
+      filename=$File.Name
+      kind="auto"
+      csv_b64=[Convert]::ToBase64String($bytes)
+      bridge_version=$BridgeVersion
+    } | ConvertTo-Json -Depth 4
+
+    try{
+      $r=Invoke-RestMethod -Uri $ImportEndpoint -Method Post -ContentType "application/json; charset=utf-8" -Body $body -TimeoutSec 30
+
+      if($r.ok){
+        $Seen[$File.FullName]=$hash
+        $t=Get-Date -Format "HH:mm:ss"
+
+        if($r.ignored){
+          Write-Host "[$t] IGNORADO: $($File.Name)" -ForegroundColor DarkGray
+          return
+        }
+
+        $enc=$r.encoding
+        $sep=$r.diagnostico.delimiter
+        Write-Host "[$t] ENVIADO: $($File.Name) | tipo=$($r.kind) | linhas=$($r.rows) | ao vivo=$($r.live) | resultados=$($r.resultados_com_vencedor)" -ForegroundColor Green
+        Write-Host "          leitura: encoding=$enc | separador=$sep" -ForegroundColor DarkCyan
+
+        if($r.liquidacao){
+          Write-Host "          Finalizadas agora: $($r.liquidacao.alteradas) | Pendentes: $($r.liquidacao.pendentes) | Aguardando final: $($r.liquidacao.aguardando_final)" -ForegroundColor Cyan
+        }
       }
+    }catch{
+      $msg=$_.Exception.Message
+      $detail=""
+      try{
+        $resp=$_.Exception.Response
+        if($resp -and $resp.GetResponseStream){
+          $reader=New-Object IO.StreamReader($resp.GetResponseStream())
+          $detail=$reader.ReadToEnd()
+        }
+      }catch{}
+      Write-Host "ERRO $($File.Name): $msg" -ForegroundColor Red
+      if($detail){Write-Host "     $detail" -ForegroundColor DarkRed}
     }
   }catch{
-    Write-Host "ERRO $($File.Name): $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "ERRO lendo $($File.Name): $($_.Exception.Message)" -ForegroundColor Red
   }
 }
 
-Write-Host ""
-Write-Host "MATRIX FUTEBOL - PONTE BF BOT V3.23" -ForegroundColor Cyan
+Clear-Host
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host " MATRIX FUTEBOL - PONTE BF BOT V3.24" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "Servidor: $MatrixUrl"
+Write-Host "Leitura: bytes originais (UTF-8 / UTF-16 / ANSI automático)"
+Write-Host "Heartbeat: a cada $HeartbeatSeconds segundos"
 Write-Host "Deixe esta janela aberta." -ForegroundColor Yellow
+Write-Host ""
 Write-Host "Pastas monitoradas:"
-$Folders | ForEach-Object { Write-Host " - $_" }
+$Folders | ForEach-Object {Write-Host " - $_"}
 Write-Host ""
 
+SendHeartbeat
+
 while($true){
-  foreach($folder in $Folders){
-    Get-ChildItem -LiteralPath $folder -Filter *.csv -File -ErrorAction SilentlyContinue |
-      Where-Object {$_.LastWriteTime -gt (Get-Date).AddDays(-2)} |
-      Sort-Object LastWriteTime |
-      ForEach-Object {SendCsv $_}
+  if(((Get-Date)-$LastHeartbeat).TotalSeconds -ge $HeartbeatSeconds){
+    SendHeartbeat
   }
+
+  foreach($folder in $Folders){
+    try{
+      Get-ChildItem -LiteralPath $folder -Filter *.csv -File -ErrorAction SilentlyContinue |
+        Where-Object {$_.LastWriteTime -gt (Get-Date).AddDays(-3)} |
+        Sort-Object LastWriteTime |
+        ForEach-Object {SendCsv $_}
+    }catch{}
+  }
+
   Start-Sleep -Seconds $IntervalSeconds
 }

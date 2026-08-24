@@ -1,19 +1,30 @@
-PONTE BF BOT MANAGER -> MATRIX V3.23
+MATRIX FUTEBOL V3.24 - PONTE BF BOT CORRIGIDA
 
-1. Faça o deploy da V3.23.
-2. Extraia esta pasta no notebook.
-3. Dê dois cliques em INICIAR_PONTE_BFBOT.bat.
-4. Deixe a janela aberta.
-5. No BF Bot, exporte o CSV para Downloads, Documentos, Área de Trabalho ou C:\MATRIX_BFBOT.
-6. Quando o arquivo for criado/alterado, a ponte envia ao MATRIX em até 10 segundos.
+O ERRO DA V3.23
+A ponte estava aberta, mas o servidor recebia os CSVs e mostrava "linhas=0".
+Além disso:
+- test_marketid.csv gerava erro 400 repetidamente;
+- tips.csv era confundido com arquivo BF Bot;
+- a ponte ficava DESATUALIZADA quando nenhum arquivo mudava.
 
-O MATRIX aceita:
-- Exportar mercados
-- Exportar todos os dados visíveis
-- CSV de resultados/histórico
+CORREÇÕES
+1. O helper agora lê os BYTES originais do CSV.
+2. O servidor detecta UTF-8, UTF-16 LE/BE e Windows-1252/ANSI.
+3. Detecta automaticamente TAB, ponto-e-vírgula, vírgula ou pipe.
+4. Cabeçalhos têm correspondência flexível.
+5. test_*.csv e tips*.csv são ignorados.
+6. Um arquivo que deu erro não é reenviado sem parar; só tenta novamente se mudar.
+7. Heartbeat a cada 15 segundos.
+8. Painel separa:
+   - PONTE BF BOT = conexão do helper;
+   - DADOS BF BOT = frescor/quantidade das linhas recebidas.
 
-Quando o arquivo tiver Vencedor(es), o MATRIX tenta finalizar as DEMO imediatamente.
-
-IMPORTANTE:
-A ponte não lê senha, não entra na conta Betfair e não envia aposta real.
-Ela automatiza o envio do arquivo que o BF Bot gravar.
+COMO TESTAR
+1. Faça o deploy da V3.24.
+2. FECHE a janela antiga da Ponte V3.23.
+3. Extraia a pasta PONTE_BFBOT_WINDOWS da V3.24.
+4. Abra INICIAR_PONTE_BFBOT.bat.
+5. Deve aparecer PONTE BF BOT = CONECTADA no MATRIX.
+6. Exporte novamente "Exportar mercados" e "Exportar todos os dados visíveis"
+   do BF Bot para Downloads/Documentos/Área de Trabalho.
+7. No terminal, o correto é aparecer "linhas=..." com valor maior que zero.

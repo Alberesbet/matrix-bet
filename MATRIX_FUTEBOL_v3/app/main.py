@@ -1,4 +1,4 @@
-import os, time, threading, statistics, csv, io, re, unicodedata, math, json
+import os, time, threading, statistics, csv, io, re, unicodedata, math, json, base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -66,7 +66,8 @@ CONFIG = {
     "sportmonks_reconcile_ttl": int(os.getenv("MATRIX_RECONCILE_TTL", "45")),
     "sportmonks_reconcile_days_back": int(os.getenv("MATRIX_RECONCILE_DAYS_BACK", "2")),
     "live_status_max_age_seconds": int(os.getenv("MATRIX_LIVE_STATUS_MAX_AGE", "75")),
-    "bfbot_bridge_fresh_seconds": int(os.getenv("BFBOT_BRIDGE_FRESH_SECONDS", "90")),
+    "bfbot_bridge_fresh_seconds": int(os.getenv("BFBOT_BRIDGE_FRESH_SECONDS", "150")),
+    "bfbot_bridge_heartbeat_seconds": int(os.getenv("BFBOT_BRIDGE_HEARTBEAT_SECONDS", "45")),
     "bfbot_bridge_max_csv_mb": int(os.getenv("BFBOT_BRIDGE_MAX_CSV_MB", "12")),
 
     # Histórico DEMO compartilhado entre notebook/celular.
@@ -391,14 +392,20 @@ SPORTMONKS_RECONCILE_CACHE = {
 
 BFBOT_BRIDGE_LOCK = threading.RLock()
 BFBOT_BRIDGE = {
-    "last_seen": None,
-    "last_seen_ts": 0.0,
+    "agent_last_seen": None,
+    "agent_last_seen_ts": 0.0,
+    "data_last_seen": None,
+    "data_last_seen_ts": 0.0,
     "last_filename": None,
     "last_kind": None,
     "last_rows": 0,
     "last_live": 0,
     "last_results": 0,
+    "last_encoding": None,
+    "last_delimiter": None,
+    "last_headers": [],
     "uploads": 0,
+    "heartbeats": 0,
     "error": None,
 }
 BFBOT_RESULTS = {
@@ -521,50 +528,203 @@ def _find_matrix_game(event_name):
 
 
 def _row_get(row, *names):
-    normalized = {_norm_text(k).replace(" ", ""): v for k, v in row.items()}
+    normalized = {
+        _norm_text(str(k or "")).replace(" ", ""): v
+        for k, v in (row or {}).items()
+    }
+
+    # 1) correspondência exata
     for name in names:
         key = _norm_text(name).replace(" ", "")
         if key in normalized:
             return str(normalized[key] or "").strip()
+
+    # 2) cabeçalhos com pequenas diferenças/truncamentos
+    for name in names:
+        wanted = _norm_text(name).replace(" ", "")
+        if len(wanted) < 4:
+            continue
+        for key, value in normalized.items():
+            if len(key) < 4:
+                continue
+            if wanted in key or key in wanted:
+                return str(value or "").strip()
+
     return ""
 
 
-def parse_betfair_markets_csv(text):
-    text = str(text or "").lstrip("\ufeff").strip()
-    if not text:
-        return []
 
-    sample = text[:8192]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-        delim = dialect.delimiter
-    except Exception:
-        delim = ","
 
-    reader = csv.DictReader(io.StringIO(text), delimiter=delim)
-    out = []
+def _clean_csv_text(text):
+    text = str(text or "")
+    text = text.lstrip("\ufeff")
+    # Se UTF-16 foi interpretado de forma imperfeita, remove NULs restantes.
+    text = text.replace("\x00", "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.strip()
+
+
+def _decode_bfbot_bytes(data):
+    """
+    Detecta automaticamente UTF-8, UTF-16 LE/BE e Windows-1252.
+    Retorna texto + encoding usado.
+    """
+    if not data:
+        return "", "empty"
+
+    candidates = []
+    if data.startswith(b"\xef\xbb\xbf"):
+        candidates += ["utf-8-sig"]
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        candidates += ["utf-16"]
+
+    candidates += ["utf-8-sig", "utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp1252", "latin-1"]
+
     seen = set()
+    best = None
 
-    for raw in reader:
-        if not raw:
+    tokens = (
+        "evento", "mercado", "market", "event", "status", "hora",
+        "correspondido", "vencedor", "winner", "selection", "selec"
+    )
+
+    for enc in candidates:
+        if enc in seen:
+            continue
+        seen.add(enc)
+        try:
+            txt = data.decode(enc)
+        except Exception:
             continue
 
+        clean = _clean_csv_text(txt)
+        if not clean:
+            continue
+
+        low = _norm_text(clean[:16000])
+        nul_penalty = txt.count("\x00") * 3
+        repl_penalty = txt.count("\ufffd") * 8
+        token_score = sum(20 for t in tokens if t in low)
+        line_score = min(100, clean.count("\n"))
+        score = token_score + line_score - nul_penalty - repl_penalty
+
+        if best is None or score > best[0]:
+            best = (score, clean, enc)
+
+    if best:
+        return best[1], best[2]
+
+    return _clean_csv_text(data.decode("latin-1", errors="replace")), "latin-1"
+
+
+def _decode_bridge_payload(payload):
+    b64 = str((payload or {}).get("csv_b64") or "").strip()
+    if b64:
+        raw = base64.b64decode(b64)
+        return _decode_bfbot_bytes(raw)
+
+    return _clean_csv_text((payload or {}).get("csv") or ""), "json-text"
+
+
+def _csv_table(text):
+    """
+    Escolhe o separador pela consistência real da tabela, não só Sniffer.
+    """
+    text = _clean_csv_text(text)
+    if not text:
+        return [], {"delimiter": None, "headers": [], "rows": 0}
+
+    best = None
+    for delim in ("\t", ";", ",", "|"):
+        try:
+            rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+        except Exception:
+            continue
+
+        rows = [r for r in rows if any(str(x or "").strip() for x in r)]
+        if len(rows) < 1:
+            continue
+
+        widths = [len(r) for r in rows[:80]]
+        if not widths:
+            continue
+
+        header_cols = widths[0]
+        multi = sum(1 for w in widths if w > 1)
+        same = sum(1 for w in widths[1:] if w == header_cols)
+        score = (
+            (1000 if header_cols > 1 else 0)
+            + min(header_cols, 80) * 20
+            + multi * 4
+            + same * 8
+        )
+
+        if best is None or score > best[0]:
+            best = (score, delim, rows)
+
+    if best is None:
+        return [], {"delimiter": None, "headers": [], "rows": 0}
+
+    _, delim, raw_rows = best
+    headers = [str(x or "").strip().lstrip("\ufeff") for x in raw_rows[0]]
+
+    out = []
+    for vals in raw_rows[1:]:
+        if len(vals) < len(headers):
+            vals = vals + [""] * (len(headers) - len(vals))
+        elif len(vals) > len(headers):
+            vals = vals[:len(headers)-1] + [delim.join(vals[len(headers)-1:])]
+        row = {headers[i]: vals[i] if i < len(vals) else "" for i in range(len(headers))}
+        if any(str(v or "").strip() for v in row.values()):
+            out.append(row)
+
+    return out, {
+        "delimiter": "\\t" if delim == "\t" else delim,
+        "headers": headers,
+        "rows": len(out),
+    }
+
+
+def _csv_diag(text):
+    rows, diag = _csv_table(text)
+    return diag
+
+
+def parse_betfair_markets_csv(text):
+    text = _clean_csv_text(text)
+    rows, diag = _csv_table(text)
+    out, seen = [], set()
+
+    for raw in rows:
         event_name = _row_get(
-            raw, "EventName", "Event Name", "Evento", "Evento/mercado", "Event"
+            raw, "EventName", "Event Name", "Evento", "Evento/mercado",
+            "Event", "Evento/Evento"
         )
         market_name = _row_get(
             raw, "MarketName", "Market Name", "Mercado", "Market"
         )
-        event_id = _row_get(raw, "EventId", "Event ID", "ID do evento")
-        market_id = _row_get(raw, "MarketId", "Market ID", "ID do mercado")
+        event_id = _row_get(
+            raw, "EventId", "Event ID", "ID do evento", "ID do Evento", "ID do Ev"
+        )
+        market_id = _row_get(
+            raw, "MarketId", "Market ID", "ID do mercado", "ID do Mercado", "ID do m"
+        )
         start_time = _row_get(
-            raw, "StartTime", "Start Time", "Hora de inicio", "Hora de início"
+            raw, "StartTime", "Start Time", "Hora de inicio", "Hora de início",
+            "Hora do início"
         )
         total_matched = _row_get(
-            raw, "TotalMatched", "Total Matched", "Montante Correspondido"
+            raw, "TotalMatched", "Total Matched", "Montante Correspondido",
+            "Total correspondido"
         )
         status = _row_get(raw, "Status", "Estado")
         in_play = _row_get(raw, "InPlay", "In Play", "IP")
+
+        combined = _row_get(raw, "Evento/mercado", "Evento / mercado")
+        if combined and not market_name:
+            ev2, mk2 = _split_event_market(combined)
+            event_name = event_name or ev2
+            market_name = market_name or mk2
 
         if not event_name and not market_id:
             continue
@@ -582,8 +742,11 @@ def parse_betfair_markets_csv(text):
             "market_id": market_id or None,
             "start_time": start_time or None,
             "total_matched": total_matched or None,
+            "total_matched_num": _parse_br_number(total_matched),
             "status": status or "IMPORTADO",
-            "in_play": str(in_play).strip().lower() in ("1", "true", "yes", "sim", "in-play", "in play"),
+            "in_play": str(in_play).strip().lower() in (
+                "1", "true", "yes", "sim", "checked", "in-play", "in play"
+            ),
             "linkado_matrix": bool(matrix),
         }
 
@@ -609,7 +772,6 @@ def parse_betfair_markets_csv(text):
         out.append(item)
 
     return out
-
 
 
 
@@ -673,16 +835,12 @@ def parse_betfair_visible_csv(text):
     if not text:
         return []
 
-    try:
-        dialect = csv.Sniffer().sniff(text[:8192], delimiters=";,\t")
-        delim = dialect.delimiter
-    except Exception:
-        delim = ";"
+    rows, diag = _csv_table(text)
 
     exact, relaxed = _market_lookup_indexes()
     out, seen = [], set()
 
-    for raw in csv.DictReader(io.StringIO(text), delimiter=delim):
+    for raw in rows:
         if not raw:
             continue
 
@@ -1490,18 +1648,38 @@ def _csv_delimiter(text):
         return ";" if sample.count(";") >= sample.count(",") else ","
 
 
-def _bfbot_classify_csv(text):
-    s = _norm_text(str(text or "")[:16000])
+def _bfbot_classify_csv(text, filename=""):
+    s = _norm_text(str(text or "")[:20000])
+    fname = _norm_text(filename)
+
+    # Arquivos do próprio MATRIX / testes não são fonte BF Bot.
+    if (
+        fname.startswith("tips")
+        or "test marketid" in fname
+        or "test_marketid" in str(filename or "").lower()
+    ):
+        return "ignore"
+
     if not s:
         return "unknown"
 
+    if (
+        "provider" in s
+        and "selectionname" in s
+        and "markettype" in s
+        and "bettype" in s
+    ):
+        return "ignore"
+
     visible_tokens = (
         "evento mercado", "hora de inicio", "1 favorito",
-        "total correspondido", "placar ao vivo", "minhas selecoes"
+        "total correspondido", "placar ao vivo", "minhas selecoes",
+        "back book", "lay book"
     )
     result_tokens = (
         "vencedor es", "vencedores", "winner s", "winners",
-        "profit loss", "lucro prejuizo", "settled", "liquidado"
+        "profit loss", "lucro prejuizo", "settled", "liquidado",
+        "resultado da aposta"
     )
     market_tokens = (
         "marketid", "market id", "id do mercado",
@@ -1510,11 +1688,22 @@ def _bfbot_classify_csv(text):
 
     if any(t in s for t in visible_tokens):
         return "visible"
-    if any(t in s for t in result_tokens) and ("mercado" in s or "market" in s):
+    if any(t in s for t in result_tokens) and (
+        "mercado" in s or "market" in s or "evento" in s
+    ):
         return "results"
     if sum(1 for t in market_tokens if t in s) >= 2:
         return "markets"
+
+    if "visive" in fname or "visible" in fname:
+        return "visible"
+    if "resultado" in fname or "historico" in fname or "history" in fname:
+        return "results"
+    if "mercado" in fname or "market" in fname or "betfair" in fname:
+        return "markets"
+
     return "unknown"
+
 
 
 def parse_bfbot_results_csv(text):
@@ -1522,10 +1711,10 @@ def parse_bfbot_results_csv(text):
     if not text:
         return []
 
-    delim = _csv_delimiter(text)
+    rows, diag = _csv_table(text)
     out, seen = [], set()
 
-    for raw in csv.DictReader(io.StringIO(text), delimiter=delim):
+    for raw in rows:
         if not raw:
             continue
 
@@ -1647,17 +1836,44 @@ def bfbot_bridge_snapshot():
     with BFBOT_BRIDGE_LOCK:
         s = dict(BFBOT_BRIDGE)
 
-    age = None
-    if s.get("last_seen_ts"):
-        age = max(0, time.time() - float(s["last_seen_ts"]))
+    now_ts = time.time()
+    agent_age = None
+    data_age = None
 
-    s["age_seconds"] = round(age, 1) if age is not None else None
-    s["fresh"] = bool(age is not None and age <= CONFIG["bfbot_bridge_fresh_seconds"])
-    s["status"] = (
-        "CONECTADA" if s["fresh"]
-        else ("DESATUALIZADA" if s.get("last_seen") else "AGUARDANDO")
+    if s.get("agent_last_seen_ts"):
+        agent_age = max(0, now_ts - float(s["agent_last_seen_ts"]))
+    if s.get("data_last_seen_ts"):
+        data_age = max(0, now_ts - float(s["data_last_seen_ts"]))
+
+    s["agent_age_seconds"] = round(agent_age, 1) if agent_age is not None else None
+    s["data_age_seconds"] = round(data_age, 1) if data_age is not None else None
+
+    s["connected"] = bool(
+        agent_age is not None
+        and agent_age <= CONFIG["bfbot_bridge_heartbeat_seconds"]
     )
+    s["fresh"] = bool(
+        data_age is not None
+        and data_age <= CONFIG["bfbot_bridge_fresh_seconds"]
+        and int(s.get("last_rows") or 0) > 0
+    )
+
+    if s["connected"]:
+        s["status"] = "CONECTADA"
+    elif s.get("agent_last_seen"):
+        s["status"] = "DESCONECTADA"
+    else:
+        s["status"] = "AGUARDANDO"
+
+    if s["fresh"]:
+        s["data_status"] = "FRESCOS"
+    elif s.get("data_last_seen"):
+        s["data_status"] = "DESATUALIZADOS"
+    else:
+        s["data_status"] = "SEM DADOS"
+
     return s
+
 
 
 def bfbot_bridge_live_rows():
@@ -4073,7 +4289,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.23 PONTE BFBOT + RESULTADOS AUTOMATICOS + AO VIVO FRESCO",
+        "versao": "V3.24 PONTE BFBOT CORRIGIDA + HEARTBEAT + CSV ROBUSTO",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -4153,43 +4369,86 @@ def analisar():
 async def bfbot_bridge_import(request: Request):
     try:
         payload = await request.json()
-        text = str(payload.get("csv") or "")
         filename = str(payload.get("filename") or "bfbot.csv")
         kind = str(payload.get("kind") or "auto").strip().lower()
 
+        text, encoding = _decode_bridge_payload(payload)
         max_bytes = CONFIG["bfbot_bridge_max_csv_mb"] * 1024 * 1024
+
         if len(text.encode("utf-8", errors="ignore")) > max_bytes:
-            return JSONResponse({"ok": False, "erro": "CSV maior que o limite."}, status_code=413)
+            return JSONResponse(
+                {"ok": False, "erro": "CSV maior que o limite."},
+                status_code=413
+            )
+
+        diag = _csv_diag(text)
 
         if kind in ("", "auto"):
-            kind = _bfbot_classify_csv(text)
+            kind = _bfbot_classify_csv(text, filename=filename)
+
+        # Não é erro: apenas não é arquivo de fonte BF Bot.
+        if kind == "ignore":
+            with BFBOT_BRIDGE_LOCK:
+                BFBOT_BRIDGE["agent_last_seen"] = agora().isoformat()
+                BFBOT_BRIDGE["agent_last_seen_ts"] = time.time()
+                BFBOT_BRIDGE["heartbeats"] = int(BFBOT_BRIDGE.get("heartbeats") or 0) + 1
+            return JSONResponse({
+                "ok": True,
+                "ignored": True,
+                "filename": filename,
+                "kind": kind,
+                "diagnostico": diag,
+                "ponte": bfbot_bridge_snapshot(),
+            })
 
         rows_count = live_count = results_count = 0
 
         if kind == "markets":
             rows = parse_betfair_markets_csv(text)
+            rows_count = len(rows)
+            if rows_count <= 0:
+                return JSONResponse({
+                    "ok": False,
+                    "erro": "O arquivo foi reconhecido como mercados, mas nenhuma linha de mercado foi lida.",
+                    "filename": filename,
+                    "encoding": encoding,
+                    "diagnostico": diag,
+                }, status_code=422)
+
             _save_betfair_markets_cache(text)
             with LOCK:
                 BETFAIR_MIRROR["markets"] = rows
                 BETFAIR_MIRROR["updated_at"] = agora().isoformat()
                 BETFAIR_MIRROR["filename"] = filename
-                BETFAIR_MIRROR["rows_received"] = len(rows)
+                BETFAIR_MIRROR["rows_received"] = rows_count
                 BETFAIR_MIRROR["error"] = None
-            rows_count = len(rows)
 
         elif kind == "visible":
             rows = parse_betfair_visible_csv(text)
+            rows_count = len(rows)
+            if rows_count <= 0:
+                return JSONResponse({
+                    "ok": False,
+                    "erro": "O arquivo foi reconhecido como dados visíveis, mas nenhuma linha foi lida.",
+                    "filename": filename,
+                    "encoding": encoding,
+                    "diagnostico": diag,
+                }, status_code=422)
+
             _save_betfair_visible_cache(text)
             with LOCK:
                 BETFAIR_VISIBLE["rows"] = rows
                 BETFAIR_VISIBLE["updated_at"] = agora().isoformat()
                 BETFAIR_VISIBLE["filename"] = filename
-                BETFAIR_VISIBLE["rows_received"] = len(rows)
+                BETFAIR_VISIBLE["rows_received"] = rows_count
                 BETFAIR_VISIBLE["error"] = None
-            rows_count = len(rows)
+
             live_count = len([x for x in rows if x.get("in_play") is True])
 
-            result_rows = [r for r in parse_bfbot_results_csv(text) if r.get("winners")]
+            result_rows = [
+                r for r in parse_bfbot_results_csv(text)
+                if r.get("winners")
+            ]
             if result_rows:
                 with BFBOT_BRIDGE_LOCK:
                     BFBOT_RESULTS["rows"] = result_rows
@@ -4200,29 +4459,47 @@ async def bfbot_bridge_import(request: Request):
 
         elif kind == "results":
             rows = parse_bfbot_results_csv(text)
+            rows_count = len(rows)
+            if rows_count <= 0:
+                return JSONResponse({
+                    "ok": False,
+                    "erro": "O arquivo foi reconhecido como resultados, mas nenhuma linha foi lida.",
+                    "filename": filename,
+                    "encoding": encoding,
+                    "diagnostico": diag,
+                }, status_code=422)
+
             with BFBOT_BRIDGE_LOCK:
                 BFBOT_RESULTS["rows"] = rows
                 BFBOT_RESULTS["updated_at"] = agora().isoformat()
                 BFBOT_RESULTS["filename"] = filename
                 BFBOT_RESULTS["error"] = None
-            rows_count = len(rows)
             results_count = len([r for r in rows if r.get("winners")])
 
         else:
             return JSONResponse({
                 "ok": False,
-                "erro": "CSV não reconhecido como exportação do BF Bot.",
+                "erro": "CSV não reconhecido como exportação BF Bot compatível.",
+                "filename": filename,
+                "encoding": encoding,
                 "kind": kind,
-            }, status_code=400)
+                "diagnostico": diag,
+            }, status_code=422)
 
+        now_iso = agora().isoformat()
         with BFBOT_BRIDGE_LOCK:
-            BFBOT_BRIDGE["last_seen"] = agora().isoformat()
-            BFBOT_BRIDGE["last_seen_ts"] = time.time()
+            BFBOT_BRIDGE["agent_last_seen"] = now_iso
+            BFBOT_BRIDGE["agent_last_seen_ts"] = time.time()
+            BFBOT_BRIDGE["data_last_seen"] = now_iso
+            BFBOT_BRIDGE["data_last_seen_ts"] = time.time()
             BFBOT_BRIDGE["last_filename"] = filename
             BFBOT_BRIDGE["last_kind"] = kind
             BFBOT_BRIDGE["last_rows"] = rows_count
             BFBOT_BRIDGE["last_live"] = live_count
             BFBOT_BRIDGE["last_results"] = results_count
+            BFBOT_BRIDGE["last_encoding"] = encoding
+            BFBOT_BRIDGE["last_delimiter"] = diag.get("delimiter")
+            BFBOT_BRIDGE["last_headers"] = list(diag.get("headers") or [])[:30]
             BFBOT_BRIDGE["uploads"] = int(BFBOT_BRIDGE.get("uploads") or 0) + 1
             BFBOT_BRIDGE["error"] = None
 
@@ -4232,16 +4509,40 @@ async def bfbot_bridge_import(request: Request):
             "ok": True,
             "kind": kind,
             "filename": filename,
+            "encoding": encoding,
             "rows": rows_count,
             "live": live_count,
             "resultados_com_vencedor": results_count,
+            "diagnostico": diag,
             "liquidacao": settlement,
             "ponte": bfbot_bridge_snapshot(),
         })
+
     except Exception as e:
         with BFBOT_BRIDGE_LOCK:
             BFBOT_BRIDGE["error"] = str(e)
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
+
+
+
+
+@app.post("/api/bfbot/bridge/heartbeat")
+async def bfbot_bridge_heartbeat(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    with BFBOT_BRIDGE_LOCK:
+        BFBOT_BRIDGE["agent_last_seen"] = agora().isoformat()
+        BFBOT_BRIDGE["agent_last_seen_ts"] = time.time()
+        BFBOT_BRIDGE["heartbeats"] = int(BFBOT_BRIDGE.get("heartbeats") or 0) + 1
+        if payload.get("computer"):
+            BFBOT_BRIDGE["computer"] = str(payload.get("computer"))
+        if payload.get("bridge_version"):
+            BFBOT_BRIDGE["bridge_version"] = str(payload.get("bridge_version"))
+
+    return JSONResponse({"ok": True, "ponte": bfbot_bridge_snapshot()})
 
 
 @app.get("/api/bfbot/bridge")
@@ -4416,7 +4717,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.23", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True}
+    return {"ok": True, "versao": "3.24", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -4427,6 +4728,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.23",
+            "X-Matrix-Version": "3.24",
         },
     )
