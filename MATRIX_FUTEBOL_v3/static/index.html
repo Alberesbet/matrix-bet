@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.5 • Bf Bot Manager • H2H • Libertadores • AO VIVO</div>
+      <div class="sub">V3.5.1 • Bf Bot Manager • H2H • Libertadores • AO VIVO</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -295,7 +295,7 @@ async function refresh(){
     $('error').textContent=state.erro?('Erro: '+state.erro):'';
     render();
   }catch(e){
-    $('error').textContent='Falha ao atualizar o painel.';
+    $('status').textContent='ERRO'; $('error').textContent='Falha ao consultar /api/status. Aguarde alguns segundos e tente ANALISAR AGORA.';
   }
 }
 

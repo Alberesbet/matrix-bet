@@ -42,7 +42,7 @@ STATE = {
     "erro": None,
 }
 
-LOCK = threading.Lock()
+LOCK = threading.RLock()
 H2H_CACHE = {}
 H2H_TTL = 12 * 60 * 60
 
@@ -830,24 +830,30 @@ def startup():
 
 @app.get("/api/status")
 def status():
+    # Copia o estado rapidamente e libera o lock antes de calcular o feed BFBOT.
+    # Isso evita o travamento que deixava o painel em "..." e todos os contadores em 0.
     with LOCK:
-        return JSONResponse({
-            "nome": "MATRIX - FUTEBOL",
-            "versao": "V3.5 BFBOT FEED + CONTA + H2H + AO VIVO",
-            "config": CONFIG,
-            "conta": account_info(),
-            "bfbot": {
-                "habilitado": CONFIG["bfbot_enabled"],
-                "provider": CONFIG["bfbot_provider"],
-                "tips_prontas": len(bfbot_tips()),
-                "market_type": "MATCH_ODDS",
-                "bet_type": "BACK",
-                "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
-                "feed_path": "/bfbot/tips.csv",
-                "modo": "FEED PARA BFBOT MANAGER",
-            },
-            **STATE,
-        })
+        state_copy = dict(STATE)
+
+    tips = bfbot_tips()
+
+    return JSONResponse({
+        "nome": "MATRIX - FUTEBOL",
+        "versao": "V3.5.1 BFBOT CORRIGIDO",
+        "config": CONFIG,
+        "conta": account_info(),
+        "bfbot": {
+            "habilitado": CONFIG["bfbot_enabled"],
+            "provider": CONFIG["bfbot_provider"],
+            "tips_prontas": len(tips),
+            "market_type": "MATCH_ODDS",
+            "bet_type": "BACK",
+            "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
+            "feed_path": "/bfbot/tips.csv",
+            "modo": "FEED PARA BFBOT MANAGER",
+        },
+        **state_copy,
+    })
 
 
 @app.post("/api/analisar")
@@ -889,7 +895,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.5"}
+    return {"ok": True, "versao": "3.5.1"}
 
 
 @app.get("/", response_class=HTMLResponse)
