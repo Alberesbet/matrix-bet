@@ -1391,48 +1391,65 @@ def betfair_api_live_snapshot():
 
 
 def betfair_live_payload():
-    bridge_rows = bfbot_bridge_live_rows()
-    if bridge_rows:
-        items, seen = [], set()
-        for m in bridge_rows:
-            key = str(m.get("event_id") or m.get("event_name") or "")
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            dt = _flex_start_dt(m.get("start_time"))
-            items.append({
-                "fixture_id": m.get("fixture_id"),
-                "jogo": m.get("event_name") or "-",
-                "casa": m.get("casa"),
-                "fora": m.get("fora"),
-                "liga": m.get("liga") or "Betfair / BF Bot",
-                "pais": m.get("pais"),
-                "horario": m.get("start_time"),
-                "start_time_iso": dt.isoformat() if dt else None,
-                "ao_vivo": True,
-                "status": "AO VIVO CONFIRMADO",
-                "placar": m.get("placar"),
-                "tempo_jogo": m.get("tempo_jogo"),
-                "market_id": m.get("market_id"),
-                "event_id": m.get("event_id"),
-                "market_name": m.get("market_name"),
-                "live_source": "BFBOT_BRIDGE",
-                "dados_visiveis_frescos": True,
-                "total_matched": m.get("total_matched"),
-                "favorite_selection": m.get("favorite_selection"),
-                "favorite_odd": m.get("favorite_odd"),
-                "favorite_amount": m.get("favorite_amount"),
-                "back_book": m.get("back_book"),
-                "lay_book": m.get("lay_book"),
-                "linkado_marketid": bool(m.get("market_id")),
-                "linkado_matrix": bool(m.get("linkado_matrix")),
-            })
+    """
+    V3.27:
+    Fonte principal para jogos Betfair AO VIVO é o BF Bot/CSV fresco.
+    Um jogo aparece no MATRIX se o BF Bot marcar IP/InPlay=True, mesmo que
+    o SportMonks ainda não tenha linkado o fixture.
+    """
+    items = []
+    seen = set()
+
+    # 1) Ponte BF Bot fresca
+    try:
+        bridge_rows = bfbot_bridge_live_rows()
+    except Exception:
+        bridge_rows = []
+
+    for row in bridge_rows:
+        key = str(row.get("event_id") or row.get("market_id") or row.get("event_name") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+
+        items.append({
+            "fixture_id": row.get("fixture_id"),
+            "jogo": row.get("event_name") or "-",
+            "casa": row.get("casa"),
+            "fora": row.get("fora"),
+            "liga": row.get("liga") or row.get("competition") or "Betfair / BF Bot",
+            "pais": row.get("pais") or row.get("country_code"),
+            "horario": row.get("start_time"),
+            "ao_vivo": True,
+            "status": "AO VIVO CONFIRMADO",
+            "placar": row.get("placar"),
+            "tempo_jogo": row.get("tempo_jogo"),
+            "market_id": row.get("market_id"),
+            "event_id": row.get("event_id"),
+            "market_name": row.get("market_name"),
+            "favorite_selection": row.get("favorite_selection"),
+            "favorite_odd": row.get("favorite_odd"),
+            "favorite_amount": row.get("favorite_amount"),
+            "total_matched": row.get("total_matched"),
+            "live_source": "BFBOT_BRIDGE",
+            "dados_visiveis_frescos": True,
+            "linkado_marketid": bool(row.get("market_id")),
+            "linkado_matrix": bool(row.get("linkado_matrix")),
+        })
+
+    if items:
         return items
 
-    api_live = betfair_api_live_snapshot()
+    # 2) API Betfair, quando disponível
+    try:
+        api_live = betfair_api_live_snapshot()
+    except Exception:
+        api_live = []
+
     if api_live:
         return api_live
 
+    # 3) Não usa CSV antigo "OPEN" como ao vivo.
     return []
 
 
@@ -1887,13 +1904,23 @@ def bfbot_bridge_live_rows():
     with LOCK:
         rows = list(BETFAIR_VISIBLE.get("rows") or [])
 
-    return [
-        r for r in rows
-        if r.get("in_play") is True
-        and _norm_text(r.get("status")) not in (
-            "closed", "settled", "finalizado", "finalizada"
+    out = []
+    for r in rows:
+        raw_ip = r.get("in_play")
+        ip = raw_ip is True or str(raw_ip).strip().lower() in (
+            "1", "true", "yes", "sim", "checked", "ip", "inplay",
+            "in-play", "in play", "ao vivo", "live"
         )
-    ]
+
+        status = _norm_text(r.get("status"))
+        if ip and status not in (
+            "closed", "settled", "finalizado", "finalizada",
+            "suspended final", "encerrado", "encerrada"
+        ):
+            out.append(r)
+
+    return out
+
 
 
 def demo_result_rows():
@@ -3146,18 +3173,23 @@ def _demo_server_available_bank(bets):
     initial = float(CONFIG["demo_bank"])
     realized = 0.0
     locked = 0.0
+
     for b in bets:
         stake = float(b.get("stake") or 0)
         st = str(b.get("status") or "AGUARDANDO RESULTADO")
+        op = str(b.get("status_operacional") or "")
+
         if st == "GANHOU":
             realized += float(b.get("lucro_real") or 0)
         elif st == "PERDEU":
             realized -= stake
         elif st in ("CANCELADA", "ANULADA"):
             pass
-        else:
+        elif st == "AGUARDANDO RESULTADO" and op == "EM ANDAMENTO":
             locked += stake
+
     return initial + realized - locked
+
 
 
 def demo_server_open_candidates(candidates):
@@ -3174,6 +3206,7 @@ def demo_server_open_candidates(candidates):
     pending = sum(
         1 for b in bets
         if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+        and str(b.get("status_operacional") or "") == "EM ANDAMENTO"
     )
     available = _demo_server_available_bank(bets)
     created = 0
@@ -4550,7 +4583,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.26 BOTAO RECONCILIAR VISIVEL + FINALIZACAO SPORTMONKS",
+        "versao": "V3.27 AO VIVO BETFAIR CORRIGIDO + ENTRADAS DESTRAVADAS",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -4995,7 +5028,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.26", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
+    return {"ok": True, "versao": "3.27", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -5006,6 +5039,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.26",
+            "X-Matrix-Version": "3.27",
         },
     )
