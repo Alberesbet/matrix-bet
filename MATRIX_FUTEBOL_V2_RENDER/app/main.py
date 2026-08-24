@@ -119,12 +119,20 @@ def analisar_uma_vez():
 
             if candidatos:
                 sel, v = max(candidatos, key=lambda x: x[1]["prob"])
+                horario_raw = f.get("starting_at") or f.get("starting_at_timestamp")
+                horario = str(horario_raw or "-")
+                selecao_nome = {"HOME": home, "DRAW": "Empate", "AWAY": away}.get(sel, sel)
                 sinais.append({
                     "fixture_id": fid,
                     "jogo": f"{home} x {away}",
-                    "selecao": sel,
+                    "horario": horario,
+                    "mercado": "Resultado da partida (1X2)",
+                    "selecao": selecao_nome,
+                    "codigo_selecao": sel,
                     "odd": round(v["odd"], 2),
                     "prob": round(v["prob"] * 100, 1),
+                    "prob_tipo": "estimada pelas odds do mercado",
+                    "status_sinal": "APROVADO",
                     "stake": CONFIG["stake"],
                     "modo": CONFIG["modo"],
                 })

@@ -19,6 +19,7 @@ h1{margin:0 0 4px;font-size:28px} .sub{color:#8ea59a;margin-bottom:18px}
 .row{display:flex;justify-content:space-between;gap:10px;margin-top:8px}
 .badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#173127;color:#5ef0b1;font-size:12px}
 .err{color:#ff8f8f}
+.ok{color:#5ef0b1;font-weight:700}.muted{color:#8ea59a;font-size:12px}
 @media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{padding:14px}h1{font-size:24px}}
 </style>
 </head>
@@ -71,10 +72,14 @@ async function atualizar(){
       const el=document.createElement('div');
       el.className='signal';
       el.innerHTML=`<strong>${s.jogo}</strong>
-        <div class="row"><span>Seleção</span><b>${s.selecao}</b></div>
+        <div class="row"><span>Horário</span><b>${s.horario||'-'}</b></div>
+        <div class="row"><span>Mercado</span><b>${s.mercado||'1X2'}</b></div>
+        <div class="row"><span>Entrada sugerida</span><b>${s.selecao}</b></div>
         <div class="row"><span>Odd</span><b>${s.odd}</b></div>
-        <div class="row"><span>Probabilidade</span><b>${s.prob}%</b></div>
-        <div class="row"><span>Stake</span><b>R$ ${s.stake}</b></div>`;
+        <div class="row"><span>Probabilidade estimada</span><b>${s.prob}%</b></div>
+        <div class="muted">${s.prob_tipo||''}</div>
+        <div class="row"><span>Status</span><b class="ok">${s.status_sinal||'APROVADO'}</b></div>
+        <div class="row"><span>Stake de simulação</span><b>R$ ${s.stake}</b></div>`;
       lista.appendChild(el);
     });
     if((d.sinais||[]).length===0){
