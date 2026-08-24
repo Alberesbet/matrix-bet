@@ -508,6 +508,125 @@ def _market_event_names(market):
     return _event_pair(market.get("event_name"))
 
 
+
+def _find_betfair_visible_for_signal(signal):
+    """
+    Localiza o mesmo jogo no CSV 'Exportar todos os dados visíveis'.
+    Usado somente para obter a odd da BETFAIR.
+    """
+    sh, sa = _signal_event_names(signal)
+    if not sh or not sa:
+        return None
+
+    with LOCK:
+        rows = list(BETFAIR_VISIBLE.get("rows") or [])
+
+    candidates = []
+    for row in rows:
+        if not _market_is_match_odds(row):
+            continue
+
+        mh, ma = _market_event_names(row)
+        exact = (sh == mh and sa == ma)
+        reverse = (sh == ma and sa == mh)
+        fuzzy = False
+        if mh and ma:
+            fuzzy = ((sh in mh or mh in sh) and (sa in ma or ma in sa))
+
+        if not (exact or reverse or fuzzy):
+            continue
+
+        score = 100 if exact else (80 if reverse else 60)
+
+        signal_dt = _flex_start_dt(signal.get("start_time_iso"))
+        row_dt = _flex_start_dt(row.get("start_time"))
+        delta = None
+        if signal_dt and row_dt:
+            delta = abs((signal_dt - row_dt).total_seconds())
+            if delta <= 15 * 60:
+                score += 30
+            elif delta <= 60 * 60:
+                score += 10
+            elif delta > 6 * 60 * 60:
+                score -= 40
+
+        candidates.append((score, delta if delta is not None else 10**12, row))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    if candidates[0][0] < 60:
+        return None
+    return candidates[0][2]
+
+
+def _betfair_odd_for_signal(signal):
+    """
+    A MATRIX nunca cria uma odd para executar aposta.
+    Retorna somente a odd BETFAIR observada no CSV de dados visíveis.
+
+    O CSV recebido expõe diretamente a odd do 1º favorito.
+    Portanto essa odd só é aceita quando o favorito é a mesma seleção
+    escolhida pela análise MATRIX.
+    """
+    row = _find_betfair_visible_for_signal(signal)
+    selection = str(_betfair_selection_name(signal) or "").strip()
+
+    if not row:
+        return {
+            "ok": False,
+            "odd": None,
+            "fonte": "BETFAIR",
+            "fresca": False,
+            "motivo": "Jogo não encontrado nos dados visíveis da Betfair.",
+        }
+
+    fav = str(row.get("favorite_selection") or "").strip()
+    odd = row.get("favorite_odd")
+    fresh = betfair_visible_is_fresh()
+
+    if not selection or not fav or _norm_text(selection) != _norm_text(fav):
+        return {
+            "ok": False,
+            "odd": None,
+            "fonte": "BETFAIR",
+            "fresca": fresh,
+            "favorite_selection": fav or None,
+            "favorite_odd": odd,
+            "motivo": f"A odd disponível no CSV é do favorito {fav or '-'}, não da seleção {selection or '-'}.",
+        }
+
+    if odd is None:
+        return {
+            "ok": False,
+            "odd": None,
+            "fonte": "BETFAIR",
+            "fresca": fresh,
+            "favorite_selection": fav or None,
+            "motivo": "Odd Betfair não disponível.",
+        }
+
+    if not fresh:
+        return {
+            "ok": False,
+            "odd": float(odd),
+            "fonte": "BETFAIR",
+            "fresca": False,
+            "favorite_selection": fav or None,
+            "motivo": "Odd Betfair importada está desatualizada.",
+        }
+
+    return {
+        "ok": True,
+        "odd": float(odd),
+        "fonte": "BETFAIR",
+        "fresca": True,
+        "favorite_selection": fav or None,
+        "motivo": "Odd Betfair atual importada do BF Bot Manager.",
+    }
+
+
 def _find_betfair_market_for_signal(signal):
     """
     Liga um sinal SportMonks/MATRIX ao mercado Betfair importado do BF Bot Manager.
@@ -1519,6 +1638,11 @@ def bfbot_tips():
         if not market:
             continue
 
+        # A análise pode usar SportMonks/H2H, mas a execução só usa odd BETFAIR.
+        bf_odd = _betfair_odd_for_signal(s)
+        if not bf_odd.get("ok"):
+            continue
+
         market_id = str(market.get("market_id") or "").strip()
         if not market_id:
             continue
@@ -1695,12 +1819,29 @@ def status():
     # Isso evita o travamento que deixava o painel em "..." e todos os contadores em 0.
     with LOCK:
         state_copy = dict(STATE)
+        state_copy["sinais"] = [dict(x) for x in (STATE.get("sinais") or [])]
+        state_copy["internacionais"] = [dict(x) for x in (STATE.get("internacionais") or [])]
+        state_copy["libertadores"] = [dict(x) for x in (STATE.get("libertadores") or [])]
+
+    # Acrescenta a odd BETFAIR aos cards sem substituir os dados de análise.
+    enriched_by_fixture = {}
+    for group in ("sinais", "internacionais", "libertadores"):
+        for s in state_copy.get(group) or []:
+            bf = _betfair_odd_for_signal(s)
+            s["odd_betfair"] = bf.get("odd")
+            s["odd_betfair_ok"] = bool(bf.get("ok"))
+            s["odd_betfair_fresca"] = bool(bf.get("fresca"))
+            s["odd_betfair_fonte"] = bf.get("fonte")
+            s["odd_betfair_motivo"] = bf.get("motivo")
+            s["odd_betfair_selecao"] = bf.get("favorite_selection")
+            if s.get("fixture_id") is not None:
+                enriched_by_fixture[str(s.get("fixture_id"))] = bf
 
     tips = bfbot_tips()
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.12 AO VIVO ATUALIZADO + BETFAIR + MARKETID",
+        "versao": "V3.13 ODD BETFAIR REAL + AO VIVO + MARKETID",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),

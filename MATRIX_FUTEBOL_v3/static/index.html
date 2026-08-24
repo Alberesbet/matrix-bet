@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.12 • AO VIVO ATUALIZADO • BETFAIR • MarketId</div>
+      <div class="sub">V3.13 • ODD BETFAIR REAL • AO VIVO • MarketId</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -115,14 +115,22 @@ function h2hHtml(x){
 }
 
 function betBox(x, idx){
-  if(!x.selecao||!x.odd)return'';
+  if(!x.selecao)return'';
   const def=Number(x.stake_padrao||10).toFixed(2);
+  const odd=Number(x.odd_betfair||0);
+  const ok=!!x.odd_betfair_ok && odd>1;
+  const ret=ok?(Number(def)*odd):0;
+  const profit=ok?(ret-Number(def)):0;
+
   return `<div class="betbox">
     <div><b>Simular aposta</b></div>
-    <div class="row"><span>Valor</span><input id="stake_${idx}" class="betinput" type="number" min="1" step="1" value="${def}"></div>
-    <div class="row"><span>Retorno potencial</span><b id="ret_${idx}" class="money">${money(def*x.odd)}</b></div>
-    <div class="row"><span>Lucro potencial</span><b id="profit_${idx}" class="money">${money(def*x.odd-def)}</b></div>
-    <button class="btn2" style="margin-top:9px" onclick="placeBet(${idx})">APOSTAR EM SIMULAÇÃO</button>
+    <div class="row"><span>Valor</span><input id="stake_${idx}" class="betinput" type="number" min="1" step="1" value="${def}" ${ok?'':'disabled'}></div>
+    <div class="row"><span>Odd usada</span><b>${ok?odd.toFixed(2):'—'}</b></div>
+    <div class="row"><span>Fonte da odd</span><b>${ok?'BETFAIR':'BETFAIR INDISPONÍVEL'}</b></div>
+    <div class="row"><span>Retorno potencial</span><b id="ret_${idx}" class="money">${ok?money(ret):'—'}</b></div>
+    <div class="row"><span>Lucro potencial</span><b id="profit_${idx}" class="money">${ok?money(profit):'—'}</b></div>
+    ${ok?'':`<div class="reason"><b>Simulação bloqueada:</b> ${esc(x.odd_betfair_motivo||'odd Betfair atual indisponível')}</div>`}
+    <button class="btn2" style="margin-top:9px;${ok?'':'opacity:.45;cursor:not-allowed'}" ${ok?`onclick="placeBet(${idx})"`:'disabled'}>${ok?'APOSTAR EM SIMULAÇÃO':'AGUARDANDO ODD BETFAIR'}</button>
   </div>`;
 }
 
@@ -141,7 +149,7 @@ function renderGame(x, idx){
       ${x.placar?`<div class="row"><span>Placar</span><b>${esc(x.placar)}</b></div>`:''}
       ${x.market_id?`<div class="row"><span>Market ID</span><b>${esc(x.market_id)}</b></div>`:''}
       ${x.favorite_selection?`<div class="row"><span>1º favorito Betfair</span><b>${esc(x.favorite_selection)}</b></div>`:''}
-      ${x.favorite_odd?`<div class="row"><span>${fresh?'Odd atual do favorito':'Última odd importada'}</span><b>${esc(x.favorite_odd)}</b></div>`:''}
+      ${x.favorite_odd?`<div class="row"><span>${fresh?'Odd BETFAIR atual do favorito':'Última odd BETFAIR importada'}</span><b>${esc(x.favorite_odd)}</b></div>`:''}
       ${x.total_matched?`<div class="row"><span>Total correspondido</span><b>${esc(x.total_matched)}</b></div>`:''}
       <div class="reason">${x.live_source==='CONFIRMADO'?
         'Betfair informou o estado ao vivo.':
@@ -158,10 +166,12 @@ function renderGame(x, idx){
     ${x.selecao?`
       <div class="row"><span>Mercado</span><b>${esc(x.mercado)}</b></div>
       <div class="row"><span>Melhor possibilidade</span><b>${esc(x.selecao)}</b></div>
-      <div class="row"><span>Odd mediana</span><b>${x.odd}</b></div>
-      <div class="row"><span>Melhor odd recebida</span><b>${x.melhor_odd}</b></div>
+      <div class="row"><span>Odd mediana (análise)</span><b>${x.odd}</b></div>
+      <div class="row"><span>Melhor odd recebida (análise)</span><b>${x.melhor_odd}</b></div>
       <div class="row"><span>Prob. implícita das odds</span><b>${x.prob_mercado}%</b></div>
       <div class="row"><span>Índice combinado odds + H2H</span><b>${x.indice_combinado}%</b></div>
+      <div class="row"><span>Odd BETFAIR para execução</span><b>${x.odd_betfair_ok?Number(x.odd_betfair).toFixed(2):'—'}</b></div>
+      <div class="row"><span>Fonte da cotação</span><b>${x.odd_betfair_ok?'BETFAIR':'AGUARDANDO BETFAIR'}</b></div>
       <div class="muted">Peso do histórico direto: ${x.peso_h2h}%</div>
     `:''}
     ${h2hHtml(x)}
@@ -177,7 +187,7 @@ function renderBet(b){
     <div class="row"><span>Apostado em</span><b>${esc(b.selecao)}</b></div>
     <div class="row"><span>Mercado</span><b>${esc(b.mercado)}</b></div>
     <div class="row"><span>Valor apostado</span><b>${money(b.stake)}</b></div>
-    <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div>
+    <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div><div class="row"><span>Fonte da odd</span><b>${esc(b.fonte_odd||"—")}</b></div>
     <div class="row"><span>Retorno potencial</span><b class="money">${money(b.retorno)}</b></div>
     <div class="row"><span>Lucro potencial</span><b class="money">${money(b.lucro)}</b></div>
     <div class="row"><span>Status</span><b>${esc(b.status||'AGUARDANDO RESULTADO')}</b></div>
@@ -481,21 +491,26 @@ function render(){
 
   data.forEach((x,i)=>{
     const inp=$(`stake_${i}`);
-    if(!inp||!x.odd)return;
+    const odd=Number(x.odd_betfair||0);
+    if(!inp||!x.odd_betfair_ok||odd<=1)return;
     inp.addEventListener('input',()=>{
       const stake=Math.max(0,Number(inp.value||0));
-      $(`ret_${i}`).textContent=money(stake*x.odd);
-      $(`profit_${i}`).textContent=money(stake*x.odd-stake);
+      $(`ret_${i}`).textContent=money(stake*odd);
+      $(`profit_${i}`).textContent=money(stake*odd-stake);
     });
   });
 }
 
 window.placeBet=function(idx){
   const x=rendered[idx];
-  if(!x||!x.odd)return;
+  const odd=Number(x?.odd_betfair||0);
+  if(!x||!x.odd_betfair_ok||odd<=1){
+    alert('A aposta não foi registrada porque não há odd BETFAIR atual para essa seleção.');
+    return;
+  }
   const inp=$(`stake_${idx}`);
   const stake=Math.max(1,Number(inp?.value||x.stake_padrao||10));
-  const retorno=Number((stake*x.odd).toFixed(2));
+  const retorno=Number((stake*odd).toFixed(2));
   const lucro=Number((retorno-stake).toFixed(2));
   const bets=getBets();
   bets.unshift({
@@ -507,14 +522,15 @@ window.placeBet=function(idx){
     mercado:x.mercado,
     selecao:x.selecao,
     stake:Number(stake.toFixed(2)),
-    odd:x.odd,
+    odd:odd,
+    fonte_odd:'BETFAIR',
     retorno,
     lucro,
     status:'AGUARDANDO RESULTADO',
     criada_em:new Date().toLocaleString('pt-BR')
   });
   saveBets(bets);
-  alert(`Simulação registrada: ${x.selecao} • ${money(stake)} • retorno potencial ${money(retorno)}`);
+  alert(`Simulação registrada com odd BETFAIR ${odd.toFixed(2)}: ${x.selecao} • ${money(stake)} • retorno potencial ${money(retorno)}`);
 };
 
 async function refresh(){
