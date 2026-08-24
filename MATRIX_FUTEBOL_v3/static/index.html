@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.25">
+<body data-matrix-version="3.26">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.25 • FINALIZAÇÃO SPORTMONKS • TIMES + HORÁRIO • PLACAR FINAL</div>
+      <div class="sub">V3.26 • RECONCILIAR RESULTADOS • SPORTMONKS • PLACAR FINAL</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -56,6 +56,19 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     Sem ponte fresca, usa Betfair API se disponível; caso contrário, SportMonks.
     CSV antigo nunca fica contado como AO VIVO.
     “Partidas em andamento” considera apenas apostas de jogos que ainda estão realmente em andamento.
+  </div>
+
+  <div class="card" style="margin:12px 0 16px 0;border:1px solid rgba(73,231,164,.55)">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div>
+        <strong style="font-size:16px">FINALIZAÇÃO DAS APOSTAS DEMO</strong>
+        <div class="muted" style="margin-top:5px">
+          Procura os dois times + data/horário no SportMonks, busca o placar final e atualiza GANHOU/PERDEU.
+        </div>
+      </div>
+      <button class="btn" id="reconcileResultsBtn" onclick="reconcileResults()">🔄 RECONCILIAR RESULTADOS</button>
+    </div>
+    <div id="reconcileMsg" style="margin-top:9px;font-size:12px;opacity:.85"></div>
   </div>
 
   <div class="grid">

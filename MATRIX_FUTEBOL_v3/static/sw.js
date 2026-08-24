@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v325-fresh";
+const CACHE="matrix-futebol-v326-fresh";
 const STATIC=["/static/manifest.webmanifest","/static/icon-192.png","/static/icon-512.png"];
 self.addEventListener("install",e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).catch(()=>{}));

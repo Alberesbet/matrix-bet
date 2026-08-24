@@ -4550,7 +4550,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.25 FINALIZACAO SPORTMONKS FORTE + MATCH TIMES HORARIO",
+        "versao": "V3.26 BOTAO RECONCILIAR VISIVEL + FINALIZACAO SPORTMONKS",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -4995,7 +4995,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.25", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True}
+    return {"ok": True, "versao": "3.26", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True, "heartbeat": True, "sportmonks_final": True, "botao_reconciliar": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -5006,6 +5006,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.25",
+            "X-Matrix-Version": "3.26",
         },
     )
