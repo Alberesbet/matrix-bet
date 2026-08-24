@@ -1,10 +1,10 @@
-import os, time, threading, statistics, csv, io
+import os, time, threading, statistics, csv, io, re, unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -40,6 +40,14 @@ STATE = {
     "sinais": [],
     "todos": [],
     "erro": None,
+}
+
+BETFAIR_MIRROR = {
+    "markets": [],
+    "updated_at": None,
+    "filename": None,
+    "rows_received": 0,
+    "error": None,
 }
 
 LOCK = threading.RLock()
@@ -104,6 +112,178 @@ def account_info():
             else "A conta ainda não está conectada à API oficial da casa de apostas."
         ),
     }
+
+
+
+def _norm_text(value):
+    s = unicodedata.normalize("NFKD", str(value or ""))
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return s
+
+
+def _event_pair(value):
+    text = str(value or "").strip()
+    for sep in (" v ", " vs ", " x ", " - "):
+        if sep in text:
+            a, b = text.split(sep, 1)
+            return _norm_text(a), _norm_text(b)
+    return _norm_text(text), ""
+
+
+def _find_matrix_game(event_name):
+    a, b = _event_pair(event_name)
+    if not a:
+        return None
+
+    with LOCK:
+        pool = (
+            list(STATE.get("ao_vivo") or [])
+            + list(STATE.get("sinais") or [])
+            + list(STATE.get("todos") or [])
+        )
+
+    best = None
+    for item in pool:
+        ia = _norm_text(item.get("casa"))
+        ib = _norm_text(item.get("fora"))
+        if a == ia and b == ib:
+            return item
+        if a == ib and b == ia:
+            return item
+
+        # fallback conservador para diferenças pequenas como FC/IF
+        if b and ia and ib:
+            score = 0
+            if a in ia or ia in a:
+                score += 1
+            if b in ib or ib in b:
+                score += 1
+            if score == 2:
+                best = item
+    return best
+
+
+def _row_get(row, *names):
+    normalized = {_norm_text(k).replace(" ", ""): v for k, v in row.items()}
+    for name in names:
+        key = _norm_text(name).replace(" ", "")
+        if key in normalized:
+            return str(normalized[key] or "").strip()
+    return ""
+
+
+def parse_betfair_markets_csv(text):
+    text = str(text or "").lstrip("\ufeff").strip()
+    if not text:
+        return []
+
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        delim = dialect.delimiter
+    except Exception:
+        delim = ","
+
+    reader = csv.DictReader(io.StringIO(text), delimiter=delim)
+    out = []
+    seen = set()
+
+    for raw in reader:
+        if not raw:
+            continue
+
+        event_name = _row_get(
+            raw, "EventName", "Event Name", "Evento", "Evento/mercado", "Event"
+        )
+        market_name = _row_get(
+            raw, "MarketName", "Market Name", "Mercado", "Market"
+        )
+        event_id = _row_get(raw, "EventId", "Event ID", "ID do evento")
+        market_id = _row_get(raw, "MarketId", "Market ID", "ID do mercado")
+        start_time = _row_get(
+            raw, "StartTime", "Start Time", "Hora de inicio", "Hora de início"
+        )
+        total_matched = _row_get(
+            raw, "TotalMatched", "Total Matched", "Montante Correspondido"
+        )
+        status = _row_get(raw, "Status", "Estado")
+        in_play = _row_get(raw, "InPlay", "In Play", "IP")
+
+        if not event_name and not market_id:
+            continue
+
+        key = market_id or f"{event_name}|{market_name}|{start_time}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        matrix = _find_matrix_game(event_name)
+        item = {
+            "event_name": event_name or "-",
+            "event_id": event_id or None,
+            "market_name": market_name or "Mercado Betfair",
+            "market_id": market_id or None,
+            "start_time": start_time or None,
+            "total_matched": total_matched or None,
+            "status": status or "IMPORTADO",
+            "in_play": str(in_play).strip().lower() in ("1", "true", "yes", "sim", "in-play", "in play"),
+            "linkado_matrix": bool(matrix),
+        }
+
+        if matrix:
+            item.update({
+                "fixture_id": matrix.get("fixture_id"),
+                "matrix_status": matrix.get("status"),
+                "matrix_live": bool(matrix.get("ao_vivo")),
+                "placar": matrix.get("placar"),
+                "tempo_jogo": matrix.get("tempo_jogo"),
+                "liga": matrix.get("liga"),
+                "pais": matrix.get("pais"),
+                "selecao": matrix.get("selecao"),
+                "odd": matrix.get("odd"),
+                "indice_combinado": matrix.get("indice_combinado"),
+                "motivo": matrix.get("motivo"),
+            })
+        out.append(item)
+
+    return out
+
+
+def betfair_mirror_snapshot():
+    with LOCK:
+        markets = list(BETFAIR_MIRROR.get("markets") or [])
+        meta = {
+            "updated_at": BETFAIR_MIRROR.get("updated_at"),
+            "filename": BETFAIR_MIRROR.get("filename"),
+            "rows_received": BETFAIR_MIRROR.get("rows_received", 0),
+            "error": BETFAIR_MIRROR.get("error"),
+        }
+
+    match_odds = [
+        x for x in markets
+        if "match odds" in _norm_text(x.get("market_name"))
+        or "match odds" in _norm_text(x.get("event_name"))
+        or "probabilidades" in _norm_text(x.get("market_name"))
+    ]
+    linked = [x for x in markets if x.get("linkado_matrix")]
+    live = [
+        x for x in markets
+        if x.get("in_play") or x.get("matrix_live")
+    ]
+    return {
+        **meta,
+        "markets": markets,
+        "total": len(markets),
+        "match_odds": len(match_odds),
+        "linkados_sportmonks": len(linked),
+        "ao_vivo_identificados": len(live),
+        "fonte": "CSV EXPORTADO DO BF BOT MANAGER",
+        "automatico": False,
+        "observacao": "O BF Bot Manager não possui auto-exportação pública de mercados; esta lista espelha o último CSV exportado/importado.",
+    }
+
 
 
 app = FastAPI(title="MATRIX - FUTEBOL")
@@ -942,9 +1122,10 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.6 CSV BFBOT DIRETO + SPORTMONKS FALLBACK",
+        "versao": "V3.7 BETFAIR MIRROR + BFBOT + SPORTMONKS",
         "config": CONFIG,
         "conta": account_info(),
+        "betfair_mirror": betfair_mirror_snapshot(),
         "bfbot": {
             "habilitado": CONFIG["bfbot_enabled"],
             "provider": CONFIG["bfbot_provider"],
@@ -969,6 +1150,35 @@ def analisar():
     run_analysis()
     return status()
 
+
+
+
+@app.post("/api/betfair/markets/import")
+async def import_betfair_markets(request: Request):
+    try:
+        payload = await request.json()
+        text = str(payload.get("csv") or "")
+        filename = str(payload.get("filename") or "markets.csv")
+        if len(text) > 5_000_000:
+            return JSONResponse({"ok": False, "erro": "CSV maior que 5 MB."}, status_code=413)
+
+        markets = parse_betfair_markets_csv(text)
+        with LOCK:
+            BETFAIR_MIRROR["markets"] = markets
+            BETFAIR_MIRROR["updated_at"] = agora().isoformat()
+            BETFAIR_MIRROR["filename"] = filename
+            BETFAIR_MIRROR["rows_received"] = len(markets)
+            BETFAIR_MIRROR["error"] = None
+        return JSONResponse({"ok": True, **betfair_mirror_snapshot()})
+    except Exception as e:
+        with LOCK:
+            BETFAIR_MIRROR["error"] = str(e)
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
+
+
+@app.get("/api/betfair/markets")
+def get_betfair_markets():
+    return JSONResponse(betfair_mirror_snapshot())
 
 
 @app.get("/api/account")
@@ -1018,7 +1228,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.6"}
+    return {"ok": True, "versao": "3.7"}
 
 
 @app.get("/", response_class=HTMLResponse)

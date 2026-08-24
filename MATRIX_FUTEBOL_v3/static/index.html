@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.6 • CSV Bf Bot Manager corrigido • Match direto + SportMonks fallback</div>
+      <div class="sub">V3.7 • BETFAIR MIRROR • Bf Bot Manager • SportMonks • Betfair TV</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -53,6 +53,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <button class="tab" data-mode="bets">MINHAS APOSTAS</button>
     <button class="tab" data-mode="account">CONTA</button>
     <button class="tab" data-mode="bfbot">BFBOT</button>
+    <button class="tab" data-mode="betfair">BETFAIR</button>
   </div>
 
   <div class="card" style="margin-top:9px">
@@ -79,7 +80,7 @@ function badge(x){
 }
 
 function listForMode(){
-  if(mode==='account'||mode==='bfbot')return [];
+  if(mode==='account'||mode==='bfbot'||mode==='betfair')return [];
   if(mode==='bets')return getBets();
   if(!state)return[];
   if(mode==='live')return state.ao_vivo||[];
@@ -89,7 +90,7 @@ function listForMode(){
   return state.sinais||[];
 }
 function titleForMode(){
-  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager'}[mode];
+  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager',betfair:'Mercados Betfair / BF Bot Manager'}[mode];
 }
 
 function h2hHtml(x){
@@ -220,10 +221,127 @@ function renderBfBot(){
     </div>`;
 }
 
+
+function bfStartLabel(raw){
+  if(!raw)return 'Horário não informado';
+  let d=null;
+  // formatos comuns do export: ISO, YYYY-MM-DD HH:mm:ss ou DD-MM HH:mm
+  const s=String(raw).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) d=new Date(s.replace(' ','T')+(s.includes('Z')?'':'Z'));
+  if(!d || isNaN(d)){
+    const m=s.match(/^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+    if(m){
+      const now=new Date();
+      d=new Date(now.getFullYear(),Number(m[2])-1,Number(m[1]),Number(m[3]),Number(m[4]));
+    }
+  }
+  if(!d || isNaN(d))return s;
+  const mins=Math.round((d.getTime()-Date.now())/60000);
+  if(mins>60)return `Começa em ${Math.floor(mins/60)}h ${mins%60}min`;
+  if(mins>0)return `Começa em ${mins} min`;
+  return 'Horário de início já passou / possível AO VIVO';
+}
+
+function renderBetfairMarket(x){
+  const linked=x.linkado_matrix;
+  const live=x.matrix_live||x.in_play;
+  return `<div class="item">
+    <div class="row">
+      <strong>${esc(x.event_name||'-')}</strong>
+      <span class="badge ${live?'live':(linked?'':'wait')}">${live?'AO VIVO / ABERTO':(linked?'LINKADO':'BETFAIR')}</span>
+    </div>
+    <div class="muted">${esc(x.market_name||'Mercado Betfair')} • ${esc(x.status||'IMPORTADO')}</div>
+    <div class="row"><span>Hora de início</span><b>${esc(x.start_time||'—')}</b></div>
+    <div class="muted">${esc(bfStartLabel(x.start_time))}</div>
+    <div class="row"><span>Market ID</span><b>${esc(x.market_id||'—')}</b></div>
+    <div class="row"><span>Event ID</span><b>${esc(x.event_id||'—')}</b></div>
+    ${x.total_matched?`<div class="row"><span>Total correspondido</span><b>${esc(x.total_matched)}</b></div>`:''}
+    ${linked?`
+      <div class="reason"><b>MATRIX encontrou o mesmo jogo na SportMonks.</b></div>
+      ${x.matrix_live?`<div class="row"><span>Placar</span><b>${esc(x.placar||'-')}</b></div>
+      <div class="row"><span>Tempo</span><b>${esc(x.tempo_jogo||'-')}</b></div>`:''}
+      ${x.selecao?`<div class="row"><span>Melhor possibilidade MATRIX</span><b>${esc(x.selecao)}</b></div>
+      <div class="row"><span>Odd</span><b>${esc(x.odd||'-')}</b></div>
+      <div class="row"><span>Índice</span><b>${esc(x.indice_combinado||'-')}%</b></div>`:''}
+    `:`<div class="reason"><b>Mercado Betfair visível.</b> Ainda sem correspondência nos dados SportMonks do MATRIX.</div>`}
+  </div>`;
+}
+
+function renderBetfair(){
+  const b=(state&&state.betfair_mirror)||{};
+  const markets=b.markets||[];
+  $('list').innerHTML=`
+    <div class="item">
+      <div class="row"><strong>Espelho dos mercados do BF Bot Manager</strong>
+        <span class="badge">${markets.length} MERCADOS</span></div>
+      <div class="smallgrid">
+        <div class="mini">Importados<b>${b.total||0}</b></div>
+        <div class="mini">Match Odds<b>${b.match_odds||0}</b></div>
+        <div class="mini">Linkados SportMonks<b>${b.linkados_sportmonks||0}</b></div>
+        <div class="mini">Ao vivo identificados<b>${b.ao_vivo_identificados||0}</b></div>
+      </div>
+      <div class="reason">
+        O MATRIX mostra aqui o último CSV exportado do BF Bot Manager. 
+        O BF Bot Manager não oferece uma auto-exportação pública de mercados.
+      </div>
+      <input id="bfMarketFile" type="file" accept=".csv,text/csv" style="display:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn2" onclick="document.getElementById('bfMarketFile').click()">IMPORTAR MERCADOS BFBOT</button>
+        <a class="btn2" href="https://livevideo.betfair.bet.br/" target="_blank" rel="noopener">📺 BETFAIR TV OFICIAL</a>
+        <a class="btn2" href="https://www.betfair.bet.br/exchange/plus/inplay/all?filter-by=live-video" target="_blank" rel="noopener">🔴 EXCHANGE AO VIVO</a>
+      </div>
+      <div class="muted" style="margin-top:8px">Arquivo: ${esc(b.filename||'nenhum')} • atualização: ${esc(b.updated_at||'—')}</div>
+    </div>
+    ${markets.length ? markets.map(renderBetfairMarket).join('') :
+      '<div class="item"><b>Nenhum mercado Betfair importado ainda.</b><div class="muted">No BF Bot Manager use EVENTOS E MERCADOS → Export markets (ou Export all visible data) e importe o CSV aqui.</div></div>'}
+  `;
+  const input=$('bfMarketFile');
+  if(input){
+    input.onchange=async e=>{
+      const file=e.target.files&&e.target.files[0];
+      if(!file)return;
+      const text=await file.text();
+      localStorage.setItem('matrix_betfair_markets_csv',text);
+      localStorage.setItem('matrix_betfair_markets_name',file.name);
+      const r=await fetch('/api/betfair/markets/import',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({csv:text,filename:file.name})
+      });
+      const j=await r.json();
+      if(!j.ok){alert('Falha ao importar: '+(j.erro||'erro'));return;}
+      await refresh();
+      mode='betfair';
+      document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.mode==='betfair'));
+      render();
+    };
+  }
+}
+
+let bfRestoreTried=false;
+async function restoreBetfairCsv(){
+  if(bfRestoreTried)return;
+  bfRestoreTried=true;
+  const text=localStorage.getItem('matrix_betfair_markets_csv');
+  if(!text)return;
+  if(state&&state.betfair_mirror&&state.betfair_mirror.total)return;
+  try{
+    await fetch('/api/betfair/markets/import',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        csv:text,
+        filename:localStorage.getItem('matrix_betfair_markets_name')||'markets.csv'
+      })
+    });
+  }catch(e){}
+}
+
 function render(){
   $('title').textContent=titleForMode();
   if(mode==='account'){renderAccount();return;}
   if(mode==='bfbot'){renderBfBot();return;}
+  if(mode==='betfair'){renderBetfair();return;}
   const data=listForMode();
   $('list').innerHTML='';
   rendered=data;
@@ -295,6 +413,7 @@ async function refresh(){
     $('signals').textContent=(state.sinais||[]).length;
     $('bets').textContent=getBets().length;
     $('error').textContent=state.erro?('Erro: '+state.erro):'';
+    await restoreBetfairCsv();
     render();
   }catch(e){
     $('status').textContent='ERRO'; $('error').textContent='Falha ao consultar /api/status. Aguarde alguns segundos e tente ANALISAR AGORA.';

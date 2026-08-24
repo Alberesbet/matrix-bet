@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v36csv";
+const CACHE="matrix-futebol-v37betfair";
 self.addEventListener("install",()=>self.skipWaiting());
 self.addEventListener("activate",e=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(
