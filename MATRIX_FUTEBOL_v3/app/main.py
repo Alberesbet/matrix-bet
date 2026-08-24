@@ -50,6 +50,10 @@ BETFAIR_MIRROR = {
     "error": None,
 }
 
+BETFAIR_MARKETS_CACHE_FILE = Path(
+    os.getenv("BETFAIR_MARKETS_CACHE_FILE", "/tmp/matrix_betfair_markets.csv")
+)
+
 LOCK = threading.RLock()
 H2H_CACHE = {}
 H2H_TTL = 12 * 60 * 60
@@ -251,6 +255,145 @@ def parse_betfair_markets_csv(text):
     return out
 
 
+
+def _market_is_match_odds(market):
+    name = _norm_text(market.get("market_name"))
+    return (
+        "match odds" in name
+        or "resultado da partida" in name
+        or name in ("1 x 2", "1x2")
+        or not name
+        or name == "mercado betfair"
+    )
+
+
+def _flex_start_dt(raw):
+    s = str(raw or "").strip()
+    if not s:
+        return None
+
+    # ISO / YYYY-MM-DD HH:MM:SS
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace(" ", "T", 1))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt.astimezone(TZ)
+    except Exception:
+        pass
+
+    # DD-MM HH:MM, formato comum da grade
+    m = re.match(r"^(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$", s)
+    if m:
+        now = agora()
+        return datetime(
+            now.year, int(m.group(2)), int(m.group(1)),
+            int(m.group(3)), int(m.group(4)),
+            tzinfo=TZ
+        )
+    return None
+
+
+def _signal_event_names(signal):
+    home = str(signal.get("casa") or "").strip()
+    away = str(signal.get("fora") or "").strip()
+    return _norm_text(home), _norm_text(away)
+
+
+def _market_event_names(market):
+    return _event_pair(market.get("event_name"))
+
+
+def _find_betfair_market_for_signal(signal):
+    """
+    Liga um sinal SportMonks/MATRIX ao mercado Betfair importado do BF Bot Manager.
+    Requer MarketId real. Faz match principalmente por Casa/Fora e, quando houver,
+    usa o horário para desempatar.
+    """
+    sh, sa = _signal_event_names(signal)
+    if not sh or not sa:
+        return None
+
+    with LOCK:
+        markets = list(BETFAIR_MIRROR.get("markets") or [])
+
+    candidates = []
+    for m in markets:
+        market_id = str(m.get("market_id") or "").strip()
+        if not market_id:
+            continue
+        if not _market_is_match_odds(m):
+            continue
+
+        mh, ma = _market_event_names(m)
+        exact = (sh == mh and sa == ma)
+        reversed_order = (sh == ma and sa == mh)
+
+        # fallback conservador para FC/IF e abreviações pequenas
+        fuzzy = False
+        if mh and ma:
+            fuzzy = (
+                (sh in mh or mh in sh) and
+                (sa in ma or ma in sa)
+            )
+
+        if not (exact or reversed_order or fuzzy):
+            continue
+
+        score = 100 if exact else (80 if reversed_order else 60)
+
+        signal_dt = _flex_start_dt(signal.get("start_time_iso"))
+        market_dt = _flex_start_dt(m.get("start_time"))
+        delta = None
+        if signal_dt and market_dt:
+            delta = abs((signal_dt - market_dt).total_seconds())
+            if delta <= 15 * 60:
+                score += 30
+            elif delta <= 60 * 60:
+                score += 10
+            elif delta > 6 * 60 * 60:
+                score -= 40
+
+        candidates.append((score, delta if delta is not None else 10**12, m))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    best = candidates[0]
+
+    # Não usamos matches fracos para aposta.
+    if best[0] < 60:
+        return None
+    return best[2]
+
+
+def _save_betfair_markets_cache(text):
+    try:
+        BETFAIR_MARKETS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BETFAIR_MARKETS_CACHE_FILE.write_text(str(text or ""), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _load_betfair_markets_cache():
+    try:
+        if not BETFAIR_MARKETS_CACHE_FILE.exists():
+            return
+        text = BETFAIR_MARKETS_CACHE_FILE.read_text(encoding="utf-8")
+        markets = parse_betfair_markets_csv(text)
+        if not markets:
+            return
+        with LOCK:
+            BETFAIR_MIRROR["markets"] = markets
+            BETFAIR_MIRROR["updated_at"] = datetime.now(TZ).isoformat()
+            BETFAIR_MIRROR["filename"] = BETFAIR_MARKETS_CACHE_FILE.name
+            BETFAIR_MIRROR["rows_received"] = len(markets)
+            BETFAIR_MIRROR["error"] = None
+    except Exception as e:
+        with LOCK:
+            BETFAIR_MIRROR["error"] = str(e)
+
+
 def betfair_mirror_snapshot():
     with LOCK:
         markets = list(BETFAIR_MIRROR.get("markets") or [])
@@ -288,6 +431,9 @@ def betfair_mirror_snapshot():
 
 app = FastAPI(title="MATRIX - FUTEBOL")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+
+# Restaura o último espelho Betfair disponível no container.
+_load_betfair_markets_cache()
 
 
 def agora():
@@ -975,10 +1121,11 @@ def _bfbot_sportmonks_selection(signal):
 
 def bfbot_tips():
     """
-    Returns pre-match approved tips only.
-    Live tips are intentionally excluded from the CSV URL because Bf Bot
-    Manager's web-location importer is designed around scheduled reloading,
-    not second-by-second in-play execution.
+    Feed de EXECUÇÃO.
+    Só envia tips aprovadas que tenham sido ligadas a um MarketId Betfair real
+    vindo do CSV de mercados exportado do BF Bot Manager.
+
+    Isso evita que o BF Bot Manager receba novas tips com Market ID = 0.
     """
     if not CONFIG["bfbot_enabled"]:
         return []
@@ -994,47 +1141,76 @@ def bfbot_tips():
             continue
         if s.get("status") != "APROVADO":
             continue
-        if not s.get("selecao") or not s.get("fixture_id"):
+        if not s.get("selecao"):
             continue
 
         mins = _minutes_until_signal(s)
-        # Keep the tip available until kickoff. This is essential because
-        # Bf Bot Manager resolves SportMonksFixtureId to Betfair IDs only close
-        # to event start (typically ~30 minutes before kickoff).
         if mins is not None and mins < CONFIG["bfbot_min_minutes_before_start"]:
             continue
 
-        event_key = (s.get("fixture_id"), s.get("codigo_selecao"))
-        if event_key in seen:
+        market = _find_betfair_market_for_signal(s)
+        if not market:
             continue
-        seen.add(event_key)
+
+        market_id = str(market.get("market_id") or "").strip()
+        if not market_id:
+            continue
 
         selection = _betfair_selection_name(s)
         if not selection:
             continue
 
-        rows.append({
+        event_key = (market_id, _norm_text(selection))
+        if event_key in seen:
+            continue
+        seen.add(event_key)
+
+        row = {
             "Provider": CONFIG["bfbot_provider"],
-            "Handicap": "0",
-            "SportMonksFixtureId": str(s.get("fixture_id") or ""),
+            "MarketId": market_id,
             "SelectionName": selection,
-            "MarketName": "Match Odds",
-            "EventName": _bfbot_event_name(s),
+            "EventName": str(market.get("event_name") or _bfbot_event_name(s)),
             "MarketType": "MATCH_ODDS",
-            "StartTime": _bfbot_start_time(s),
             "BetType": "BACK",
             "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
-            "Points": "0",
-            "Price": "0",
-            "MinPrice": "1.01",
-            "MaxPrice": "1000",
             "BSP": "False",
-        })
+        }
+
+        event_id = str(market.get("event_id") or "").strip()
+        if event_id:
+            row["EventId"] = event_id
+
+        rows.append(row)
 
         if len(rows) >= CONFIG["bfbot_max_tips"]:
             break
 
     return rows
+
+
+def bfbot_unmatched_signals():
+    """
+    Sinais aprovados que ainda não possuem MarketId Betfair no espelho importado.
+    Eles aparecem no painel, mas NÃO entram no feed de execução.
+    """
+    with LOCK:
+        signals = list(STATE.get("sinais") or [])
+
+    out = []
+    for s in signals:
+        if s.get("ao_vivo") or s.get("status") != "APROVADO":
+            continue
+        market = _find_betfair_market_for_signal(s)
+        if market and market.get("market_id"):
+            continue
+        out.append({
+            "fixture_id": s.get("fixture_id"),
+            "jogo": s.get("jogo"),
+            "selecao": s.get("selecao"),
+            "horario": s.get("horario"),
+            "motivo": "Aguardando MarketId no espelho Betfair/BF Bot Manager.",
+        })
+    return out
 
 
 
@@ -1066,12 +1242,19 @@ def bfbot_test_marketid_csv_text():
 
 
 def bfbot_csv_text():
-    fields = ["Provider", "Handicap", "SportMonksFixtureId", "SelectionName", "MarketName", "EventName", "MarketType", "StartTime", "BetType", "Size", "Points", "Price", "MinPrice", "MaxPrice", "BSP"]
+    rows = bfbot_tips()
+    fields = [
+        "Provider", "MarketId", "EventId", "SelectionName",
+        "EventName", "MarketType", "BetType", "Size", "BSP"
+    ]
+    normalized_rows = []
+    for row in rows:
+        normalized_rows.append({k: row.get(k, "") for k in fields})
+
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
-    for row in bfbot_tips():
-        writer.writerow(row)
+    writer.writerows(normalized_rows)
     return buf.getvalue()
 
 
@@ -1150,7 +1333,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.8 TESTE MARKETID DIRETO + BETFAIR MIRROR",
+        "versao": "V3.9 MARKETID OBRIGATORIO + BETFAIR MIRROR",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -1193,6 +1376,7 @@ async def import_betfair_markets(request: Request):
             return JSONResponse({"ok": False, "erro": "CSV maior que 5 MB."}, status_code=413)
 
         markets = parse_betfair_markets_csv(text)
+        _save_betfair_markets_cache(text)
         with LOCK:
             BETFAIR_MIRROR["markets"] = markets
             BETFAIR_MIRROR["updated_at"] = agora().isoformat()
@@ -1227,6 +1411,17 @@ def bfbot_test_marketid_feed():
     )
 
 
+
+@app.get("/api/bfbot/unmatched")
+def bfbot_unmatched():
+    rows = bfbot_unmatched_signals()
+    return JSONResponse({
+        "total": len(rows),
+        "sinais": rows,
+        "mensagem": "Estes sinais não entram no feed de execução até existir MarketId Betfair correspondente."
+    })
+
+
 @app.get("/bfbot/tips.csv", response_class=PlainTextResponse)
 def bfbot_feed():
     return PlainTextResponse(
@@ -1249,26 +1444,30 @@ def bfbot_feed_sportmonks():
 @app.get("/api/bfbot")
 def bfbot_status():
     tips = bfbot_tips()
+    unmatched = bfbot_unmatched_signals()
+    mirror = betfair_mirror_snapshot()
     return JSONResponse({
         "habilitado": CONFIG["bfbot_enabled"],
         "provider": CONFIG["bfbot_provider"],
         "tips_prontas": len(tips),
+        "tips_com_marketid": len(tips),
+        "sinais_sem_marketid": len(unmatched),
+        "mercados_betfair_importados": mirror.get("total", 0),
         "feed_path": "/bfbot/tips.csv",
-        "sportmonks_fixture_id": True,
-        "csv_direto": True,
-        "start_time_utc": True,
-        "event_name_betfair": True,
+        "test_marketid_path": "/bfbot/test_marketid.csv",
+        "marketid_obrigatorio": True,
         "bsp": False,
         "market_type": "MATCH_ODDS",
         "bet_type": "BACK",
         "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
         "tips": tips,
+        "sem_marketid": unmatched,
     })
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.8"}
+    return {"ok": True, "versao": "3.9"}
 
 
 @app.get("/", response_class=HTMLResponse)

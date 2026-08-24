@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.8 • Teste MarketId direto • Betfair Mirror • Bf Bot Manager</div>
+      <div class="sub">V3.9 • MarketId obrigatório • Betfair Mirror • Bf Bot Manager</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -201,7 +201,9 @@ function renderBfBot(){
       <div class="row"><strong>Bf Bot Manager</strong>
         <span class="badge ${b.habilitado?'':'wait'}">${b.habilitado?'FEED ATIVO':'DESATIVADO'}</span>
       </div>
-      <div class="row"><span>Tips prontas</span><b>${b.tips_prontas??0}</b></div>
+      <div class="row"><span>Tips prontas com MarketId</span><b>${b.tips_com_marketid??b.tips_prontas??0}</b></div>
+      <div class="row"><span>Sinais bloqueados sem MarketId</span><b>${b.sinais_sem_marketid??0}</b></div>
+      <div class="row"><span>Mercados Betfair importados</span><b>${b.mercados_betfair_importados??0}</b></div>
       <div class="row"><span>Provider</span><b>${esc(b.provider||'MATRIX')}</b></div>
       <div class="row"><span>Mercado</span><b>${esc(b.market_type||'MATCH_ODDS')}</b></div>
       <div class="row"><span>Tipo</span><b>${esc(b.bet_type||'BACK')}</b></div>
@@ -217,8 +219,11 @@ function renderBfBot(){
         <a class="btn2" href="${esc(b.test_marketid_path||'/bfbot/test_marketid.csv')}" target="_blank">TESTE MARKET ID</a>
       </div>
       <div class="reason" style="margin-top:10px">
-        <b>Teste isolado:</b> Sabah FA v Imigresen FC • MarketId 1.261459879 • Seleção Sabah FA.
-        Provider: MATRIX_TESTE_NAO_APOSTAR. Importe apenas para confirmar se o Market ID deixa de ficar 0.
+        <b>V3.9:</b> o feed principal só envia uma tip se ela tiver <b>MarketId Betfair real</b>.
+        Sinal sem MarketId fica bloqueado e não é enviado ao BF Bot Manager para execução.
+      </div>
+      <div class="reason" style="margin-top:8px">
+        Para atualizar os MarketIds: aba <b>BETFAIR → IMPORTAR MERCADOS BFBOT</b>.
       </div>
       <div class="muted" style="margin-top:10px">
         O feed envia somente sinais pré-jogo APROVADOS. O Bf Bot Manager é quem conecta à conta Betfair e executa a estratégia configurada.
