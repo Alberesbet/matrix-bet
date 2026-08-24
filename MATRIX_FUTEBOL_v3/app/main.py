@@ -19,8 +19,9 @@ CONFIG = {
     "odd_max": float(os.getenv("MATRIX_ODD_MAX", "4.00")),
     "prob_min": float(os.getenv("MATRIX_PROB_MIN", "0.45")),
     "intervalo": int(os.getenv("MATRIX_INTERVALO", "180")),
-    "dias_busca": int(os.getenv("MATRIX_DIAS_BUSCA", "7")),
-    "modo": os.getenv("MATRIX_MODO", "SIMULACAO"),
+    "dias_busca": int(os.getenv("MATRIX_DIAS_BUSCA", "30")),
+    "h2h_jogos": int(os.getenv("MATRIX_H2H_JOGOS", "5")),
+    "modo": "SIMULACAO",
 }
 
 STATE = {
@@ -38,6 +39,9 @@ STATE = {
 }
 
 LOCK = threading.Lock()
+H2H_CACHE = {}
+H2H_TTL = 12 * 60 * 60
+
 app = FastAPI(title="MATRIX - FUTEBOL")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
@@ -46,17 +50,22 @@ def agora():
     return datetime.now(TZ)
 
 
-def get_token():
-    t = os.getenv("SPORTMONKS_TOKEN", "").strip()
-    if not t:
+def token():
+    value = os.getenv("SPORTMONKS_TOKEN", "").strip()
+    if not value:
         raise RuntimeError("SPORTMONKS_TOKEN não configurado no Render.")
-    return t
+    return value
 
 
 def api_get(path, params=None):
     p = dict(params or {})
-    p["api_token"] = get_token()
-    r = requests.get(BASE + path, params=p, timeout=30, headers={"Accept": "application/json"})
+    p["api_token"] = token()
+    r = requests.get(
+        BASE + path,
+        params=p,
+        timeout=35,
+        headers={"Accept": "application/json"}
+    )
     try:
         payload = r.json()
     except Exception:
@@ -67,7 +76,7 @@ def api_get(path, params=None):
     return payload
 
 
-def get_all_pages(path, params=None, max_pages=12):
+def get_pages(path, params=None, max_pages=12):
     out = []
     page = 1
     while page <= max_pages:
@@ -78,117 +87,171 @@ def get_all_pages(path, params=None, max_pages=12):
         if isinstance(data, list):
             out.extend(data)
         pagination = payload.get("pagination") or {}
-        if not data:
-            break
-        if pagination.get("has_more") is False:
-            break
-        if not pagination:
+        if not data or not pagination or pagination.get("has_more") is False:
             break
         page += 1
     return out
 
 
-def team_names(f):
-    home = away = None
-    for p in f.get("participants") or []:
-        loc = str((p.get("meta") or {}).get("location") or "").lower()
-        if loc == "home":
-            home = p.get("name")
-        elif loc == "away":
-            away = p.get("name")
-    if not home or not away:
-        name = str(f.get("name") or "")
-        for sep in (" vs ", " v ", " - "):
-            if sep in name:
-                a, b = name.split(sep, 1)
-                home = home or a.strip()
-                away = away or b.strip()
-                break
-    return home or "Casa", away or "Fora"
-
-
-def league_name(f):
-    return str((f.get("league") or {}).get("name") or f.get("league_id") or "Liga")
-
-
-def is_libertadores(f):
-    name = league_name(f).lower()
-    return "libertadores" in name
-
-
-def is_international(f):
-    name = league_name(f).lower()
-    keys = (
-        "libertadores", "sudamericana", "champions", "europa league",
-        "conference league", "uefa", "conmebol", "world cup",
-        "club world cup", "nations league", "international"
-    )
-    return any(k in name for k in keys)
-
-
-def local_start(f):
-    raw = f.get("starting_at")
+def parse_dt(raw):
     if not raw:
-        return "-"
+        return None
     try:
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-        return dt.astimezone(TZ).strftime("%d/%m %H:%M")
+        return dt.astimezone(TZ)
     except Exception:
-        return str(raw)
+        return None
 
 
-def score_live(f):
-    participants = f.get("participants") or []
-    ids = {}
-    for p in participants:
+def participants(f):
+    home = {"id": None, "name": "Casa"}
+    away = {"id": None, "name": "Fora"}
+
+    for p in f.get("participants") or []:
         loc = str((p.get("meta") or {}).get("location") or "").lower()
-        if loc in ("home", "away"):
-            ids[p.get("id")] = loc
+        item = {"id": p.get("id"), "name": p.get("name") or "Time"}
+        if loc == "home":
+            home = item
+        elif loc == "away":
+            away = item
 
-    home = away = None
-    for s in f.get("scores") or []:
-        desc = str(s.get("description") or "").upper()
-        if desc not in ("CURRENT", "2ND_HALF", "1ST_HALF", "EXTRA_TIME", "PENALTY_SHOOTOUT"):
-            continue
-        pid = s.get("participant_id")
-        goals = (s.get("score") or {}).get("goals")
-        if ids.get(pid) == "home":
-            home = goals
-        elif ids.get(pid) == "away":
-            away = goals
+    if home["name"] == "Casa" or away["name"] == "Fora":
+        raw = str(f.get("name") or "")
+        for sep in (" vs ", " v ", " - "):
+            if sep in raw:
+                a, b = raw.split(sep, 1)
+                if home["name"] == "Casa":
+                    home["name"] = a.strip()
+                if away["name"] == "Fora":
+                    away["name"] = b.strip()
+                break
 
-    if home is None or away is None:
-        # Fallback: pega os últimos valores conhecidos por participante.
-        last = {}
-        for s in f.get("scores") or []:
-            pid = s.get("participant_id")
-            goals = (s.get("score") or {}).get("goals")
-            if pid is not None and goals is not None:
-                last[pid] = goals
-        for pid, loc in ids.items():
-            if loc == "home" and pid in last:
-                home = last[pid]
-            if loc == "away" and pid in last:
-                away = last[pid]
+    return home, away
 
-    if home is None or away is None:
+
+def league_obj(f):
+    return f.get("league") or {}
+
+
+def league_name(f):
+    return str(league_obj(f).get("name") or f.get("league_id") or "Liga")
+
+
+def country_name(f):
+    league = league_obj(f)
+    country = league.get("country") or {}
+    return str(country.get("name") or league.get("country_name") or "").strip()
+
+
+def is_libertadores(f):
+    return "libertadores" in league_name(f).lower()
+
+
+def is_brazilian(f):
+    country = country_name(f).lower()
+    if country:
+        return country in ("brazil", "brasil")
+    name = league_name(f).lower()
+    terms = (
+        "brasileir", "série a", "serie a", "série b", "serie b",
+        "copa do brasil", "paulista", "carioca", "mineiro",
+        "gaúcho", "gaucho", "paranaense", "baiano", "pernambucano",
+        "cearense", "catarinense", "goiano"
+    )
+    return any(t in name for t in terms)
+
+
+def is_international(f):
+    if is_libertadores(f):
+        return True
+    # Qualquer liga não identificada claramente como brasileira entra em "Internacionais".
+    return not is_brazilian(f)
+
+
+def kickoff_text(f):
+    dt = parse_dt(f.get("starting_at"))
+    return dt.strftime("%d/%m/%Y %H:%M") if dt else str(f.get("starting_at") or "-")
+
+
+def starts_in(f):
+    dt = parse_dt(f.get("starting_at"))
+    if not dt:
         return "-"
-    return f"{home} x {away}"
+    seconds = int((dt - agora()).total_seconds())
+    if seconds <= 0:
+        return "iniciado/encerrado"
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins = rem // 60
+    if days:
+        return f"em {days}d {hours}h"
+    if hours:
+        return f"em {hours}h {mins}min"
+    return f"em {max(0, mins)}min"
+
+
+def current_score(f):
+    current = {}
+    fallback = {}
+    for s in f.get("scores") or []:
+        score = s.get("score") or {}
+        loc = str(score.get("participant") or "").lower()
+        goals = score.get("goals")
+        if loc not in ("home", "away") or goals is None:
+            continue
+        fallback[loc] = goals
+        if str(s.get("description") or "").upper() == "CURRENT":
+            current[loc] = goals
+
+    data = current if "home" in current and "away" in current else fallback
+    if "home" not in data or "away" not in data:
+        return "-"
+    return f"{data['home']} x {data['away']}"
+
+
+def live_minute(f):
+    ticking = []
+    any_period = []
+    for p in f.get("periods") or []:
+        mins = p.get("minutes")
+        secs = p.get("seconds")
+        if isinstance(mins, (int, float)):
+            item = (int(mins), int(secs or 0), bool(p.get("ticking")))
+            any_period.append(item)
+            if p.get("ticking"):
+                ticking.append(item)
+
+    source = ticking or any_period
+    if source:
+        mins, secs, _ = max(source, key=lambda x: (x[0], x[1]))
+        return f"{mins}:{secs:02d}", False
+
+    # Fallback aproximado se o plano não entregar periods/minutes.
+    dt = parse_dt(f.get("starting_at"))
+    if not dt:
+        return "-", True
+    elapsed = int((agora() - dt).total_seconds() // 60)
+    if elapsed < 0:
+        return "-", True
+    approx = elapsed if elapsed <= 55 else elapsed - 15
+    approx = max(0, min(120, approx))
+    return f"~{approx}'", True
 
 
 def state_text(f):
     st = f.get("state") or {}
-    return str(st.get("short_name") or st.get("name") or f.get("state_id") or "AO VIVO")
+    return str(st.get("short_name") or st.get("state") or st.get("name") or "AO VIVO")
 
 
-def upcoming_fixtures():
+def upcoming():
     start = agora().date()
     end = (agora() + timedelta(days=CONFIG["dias_busca"])).date()
-    rows = get_all_pages(
+    rows = get_pages(
         f"/fixtures/between/{start.isoformat()}/{end.isoformat()}",
-        {"include": "participants;league;state"}
+        {"include": "participants;league.country;state"},
+        max_pages=12,
     )
     seen, out = set(), []
     for f in rows:
@@ -200,134 +263,329 @@ def upcoming_fixtures():
     return out
 
 
-def live_fixtures():
-    # Endpoint oficial de partidas em andamento.
+def live_games():
     payload = api_get(
         "/livescores/inplay",
-        {"include": "participants;league;state;scores"}
+        {"include": "participants;league.country;state;scores;periods"},
     )
     return payload.get("data", []) if isinstance(payload, dict) else []
 
 
 def prematch_odds(fid):
-    return get_all_pages(
+    return get_pages(
         f"/odds/pre-match/fixtures/{fid}",
         {"include": "market;bookmaker"},
-        max_pages=8
+        max_pages=10,
     )
 
 
 def live_odds(fid):
-    # Pode não estar liberado no plano contratado.
     try:
-        return get_all_pages(
+        payload = api_get(
             f"/odds/inplay/fixtures/{fid}",
             {"include": "market;bookmaker"},
-            max_pages=6
-        ), None
+        )
+        return payload.get("data", []) if isinstance(payload, dict) else [], None
     except Exception as e:
         return [], str(e)
 
 
-def norm_label(raw):
+def normalize_label(raw):
     x = str(raw or "").strip().upper()
     return {
-        "1": "HOME", "HOME": "HOME", "CASA": "HOME",
+        "1": "HOME", "HOME": "HOME", "CASA": "HOME", "LOCAL": "HOME",
         "X": "DRAW", "DRAW": "DRAW", "EMPATE": "DRAW",
-        "2": "AWAY", "AWAY": "AWAY", "FORA": "AWAY",
+        "2": "AWAY", "AWAY": "AWAY", "FORA": "AWAY", "VISITANTE": "AWAY",
     }.get(x)
 
 
 def parse_1x2(rows):
     buckets = {"HOME": [], "DRAW": [], "AWAY": []}
     for o in rows:
+        market = o.get("market") or {}
         desc = str(
             o.get("market_description")
-            or (o.get("market") or {}).get("name")
-            or (o.get("market") or {}).get("developer_name")
+            or market.get("name")
+            or market.get("developer_name")
             or ""
         ).upper()
-        ok = (
+
+        if not (
             "FULLTIME RESULT" in desc
             or "FULL TIME RESULT" in desc
             or "MATCH WINNER" in desc
             or "1X2" in desc
+            or "3 WAY" in desc
+            or "3-WAY" in desc
             or o.get("market_id") in (1, 52, 856)
-        )
-        if not ok:
+        ):
             continue
-        key = norm_label(o.get("label") or o.get("name") or o.get("selection"))
+
+        key = normalize_label(
+            o.get("label") or o.get("name") or o.get("selection") or o.get("value_label")
+        )
         if not key:
             continue
+
         try:
-            val = float(o.get("value"))
+            odd = float(o.get("value"))
         except Exception:
             continue
-        if val > 1.0:
-            buckets[key].append(val)
+        if odd > 1.0:
+            buckets[key].append(odd)
 
     out = {}
     for key, vals in buckets.items():
         if vals:
             med = statistics.median(vals)
-            out[key] = {
-                "odd": med,
-                "best": max(vals),
-                "n": len(vals),
-            }
+            out[key] = {"odd": med, "best": max(vals), "n": len(vals)}
 
     total = sum(1 / v["odd"] for v in out.values()) or 1
     for v in out.values():
-        v["prob"] = (1 / v["odd"]) / total
+        v["market_prob"] = (1 / v["odd"]) / total
     return out
 
 
-def analyze_market(f, rows, live=False, odds_error=None):
-    home, away = team_names(f)
-    name = f"{home} x {away}"
-    league = league_name(f)
-    m = parse_1x2(rows)
+def h2h_score_by_team(f):
+    by_team = {}
+    current_found = False
 
-    base = {
+    for s in f.get("scores") or []:
+        pid = s.get("participant_id")
+        score = s.get("score") or {}
+        goals = score.get("goals")
+        if pid is None or goals is None:
+            continue
+        if str(s.get("description") or "").upper() == "CURRENT":
+            by_team[pid] = int(goals)
+            current_found = True
+
+    if current_found and len(by_team) >= 2:
+        return by_team
+
+    # Fallback por localização.
+    home, away = participants(f)
+    loc_to_id = {"home": home["id"], "away": away["id"]}
+    by_team = {}
+    for s in f.get("scores") or []:
+        score = s.get("score") or {}
+        loc = str(score.get("participant") or "").lower()
+        goals = score.get("goals")
+        pid = s.get("participant_id") or loc_to_id.get(loc)
+        if pid is not None and goals is not None:
+            by_team[pid] = int(goals)
+    return by_team
+
+
+def h2h_history(team1_id, team2_id, team1_name, team2_name):
+    if not team1_id or not team2_id:
+        return {
+            "disponivel": False,
+            "motivo": "IDs dos times não disponíveis no feed.",
+            "jogos": 0,
+            "ultimos": [],
+        }
+
+    key = tuple(sorted((int(team1_id), int(team2_id))))
+    cached = H2H_CACHE.get(key)
+    if cached and time.time() - cached["ts"] < H2H_TTL:
+        return cached["data"]
+
+    try:
+        rows = get_pages(
+            f"/fixtures/head-to-head/{team1_id}/{team2_id}",
+            {"include": "participants;scores;state"},
+            max_pages=3,
+        )
+    except Exception as e:
+        data = {
+            "disponivel": False,
+            "motivo": str(e),
+            "jogos": 0,
+            "ultimos": [],
+        }
+        H2H_CACHE[key] = {"ts": time.time(), "data": data}
+        return data
+
+    def sort_key(f):
+        dt = parse_dt(f.get("starting_at"))
+        return dt.timestamp() if dt else 0
+
+    rows = sorted(rows, key=sort_key, reverse=True)
+    valid = []
+
+    for f in rows:
+        dt = parse_dt(f.get("starting_at"))
+        if dt and dt >= agora():
+            continue
+
+        scores = h2h_score_by_team(f)
+        if team1_id not in scores or team2_id not in scores:
+            continue
+
+        g1, g2 = scores[team1_id], scores[team2_id]
+        if g1 > g2:
+            winner = "TEAM1"
+        elif g2 > g1:
+            winner = "TEAM2"
+        else:
+            winner = "DRAW"
+
+        valid.append({
+            "data": dt.strftime("%d/%m/%Y") if dt else "-",
+            "jogo": f.get("name") or f"{team1_name} x {team2_name}",
+            "placar_time1": g1,
+            "placar_time2": g2,
+            "placar": f"{g1} x {g2}",
+            "vencedor": winner,
+            "gols": g1 + g2,
+        })
+        if len(valid) >= CONFIG["h2h_jogos"]:
+            break
+
+    n = len(valid)
+    if not n:
+        data = {
+            "disponivel": False,
+            "motivo": "Nenhum confronto anterior com placar disponível no seu plano.",
+            "jogos": 0,
+            "ultimos": [],
+        }
+    else:
+        w1 = sum(1 for x in valid if x["vencedor"] == "TEAM1")
+        w2 = sum(1 for x in valid if x["vencedor"] == "TEAM2")
+        draws = n - w1 - w2
+        avg_goals = sum(x["gols"] for x in valid) / n
+        over15 = sum(1 for x in valid if x["gols"] >= 2)
+        btts = sum(
+            1 for x in valid
+            if x["placar_time1"] > 0 and x["placar_time2"] > 0
+        )
+
+        # Laplace smoothing evita 100% artificial com poucos jogos.
+        probs = {
+            "HOME": (w1 + 1) / (n + 3),
+            "DRAW": (draws + 1) / (n + 3),
+            "AWAY": (w2 + 1) / (n + 3),
+        }
+
+        tendency = max(probs, key=probs.get)
+        tendency_name = {
+            "HOME": team1_name,
+            "DRAW": "Empate",
+            "AWAY": team2_name,
+        }[tendency]
+
+        data = {
+            "disponivel": True,
+            "motivo": None,
+            "jogos": n,
+            "vitorias_time1": w1,
+            "empates": draws,
+            "vitorias_time2": w2,
+            "media_gols": round(avg_goals, 2),
+            "over15_pct": round(over15 / n * 100, 1),
+            "ambas_marcam_pct": round(btts / n * 100, 1),
+            "tendencia": tendency_name,
+            "probs": probs,
+            "ultimos": valid,
+        }
+
+    H2H_CACHE[key] = {"ts": time.time(), "data": data}
+    return data
+
+
+def base_item(f, live=False):
+    home, away = participants(f)
+    minute, approximate = live_minute(f) if live else ("-", False)
+    return {
         "fixture_id": f.get("id"),
-        "jogo": name,
-        "liga": league,
-        "horario": local_start(f),
+        "jogo": f"{home['name']} x {away['name']}",
+        "casa": home["name"],
+        "fora": away["name"],
+        "casa_id": home["id"],
+        "fora_id": away["id"],
+        "liga": league_name(f),
+        "pais": country_name(f) or "não informado",
+        "horario": kickoff_text(f),
+        "comeca_em": starts_in(f) if not live else None,
         "libertadores": is_libertadores(f),
         "internacional": is_international(f),
         "ao_vivo": live,
-        "placar": score_live(f) if live else None,
+        "placar": current_score(f) if live else None,
         "estado": state_text(f) if live else None,
+        "tempo_jogo": minute if live else None,
+        "tempo_aproximado": approximate if live else False,
     }
 
-    if not m:
-        base.update({
-            "status": "SEM 1X2" if not odds_error else "ODDS LIVE INDISPONÍVEIS",
-            "motivo": odds_error or "Partida encontrada, mas sem mercado 1X2 disponível.",
-        })
-        return base, None
 
-    sel, v = max(m.items(), key=lambda x: x[1]["prob"])
-    pick = {"HOME": home, "DRAW": "Empate", "AWAY": away}[sel]
+def analyze_market(f, rows, live=False, odds_error=None):
+    item = base_item(f, live)
+    market = parse_1x2(rows)
+
+    if not market:
+        item.update({
+            "status": "ODDS AO VIVO INDISPONÍVEIS" if live and odds_error else "SEM 1X2",
+            "motivo": odds_error or "Partida encontrada, mas sem mercado 1X2 disponível.",
+            "h2h": {"disponivel": False, "jogos": 0, "ultimos": []},
+        })
+        return item, None
+
+    h2h = h2h_history(
+        item["casa_id"], item["fora_id"], item["casa"], item["fora"]
+    )
+
+    # Combina mercado + histórico direto. H2H tem peso menor para não dominar
+    # a análise quando a amostra é pequena.
+    h2h_weight = 0.30 if h2h.get("jogos", 0) >= 3 else (0.15 if h2h.get("jogos", 0) else 0.0)
+    market_weight = 1.0 - h2h_weight
+
+    scored = {}
+    for key, value in market.items():
+        hist_prob = (h2h.get("probs") or {}).get(key, value["market_prob"])
+        combined = market_weight * value["market_prob"] + h2h_weight * hist_prob
+        scored[key] = {**value, "hist_prob": hist_prob, "combined": combined}
+
+    selection, v = max(scored.items(), key=lambda x: x[1]["combined"])
+    pick = {
+        "HOME": item["casa"],
+        "DRAW": "Empate",
+        "AWAY": item["fora"],
+    }[selection]
+
     reasons = []
     if not (CONFIG["odd_min"] <= v["odd"] <= CONFIG["odd_max"]):
-        reasons.append(f"odd {v['odd']:.2f} fora do filtro")
-    if v["prob"] < CONFIG["prob_min"]:
-        reasons.append(f"probabilidade implícita {v['prob']*100:.1f}% abaixo do filtro")
+        reasons.append(
+            f"odd {v['odd']:.2f} fora de {CONFIG['odd_min']:.2f}–{CONFIG['odd_max']:.2f}"
+        )
+    if v["combined"] < CONFIG["prob_min"]:
+        reasons.append(
+            f"índice combinado {v['combined']*100:.1f}% abaixo de {CONFIG['prob_min']*100:.0f}%"
+        )
 
     approved = not reasons
-    item = {
-        **base,
+    stake = CONFIG["stake"]
+    potential_return = stake * v["odd"]
+    potential_profit = potential_return - stake
+
+    item.update({
         "mercado": "Resultado da partida (1X2)",
         "selecao": pick,
+        "codigo_selecao": selection,
         "odd": round(v["odd"], 2),
         "melhor_odd": round(v["best"], 2),
         "casas": v["n"],
-        "prob": round(v["prob"] * 100, 1),
-        "stake": CONFIG["stake"],
+        "prob_mercado": round(v["market_prob"] * 100, 1),
+        "indice_combinado": round(v["combined"] * 100, 1),
+        "peso_h2h": round(h2h_weight * 100, 0),
+        "stake_padrao": round(stake, 2),
+        "retorno_potencial_padrao": round(potential_return, 2),
+        "lucro_potencial_padrao": round(potential_profit, 2),
+        "h2h": h2h,
         "status": "APROVADO" if approved else "AGUARDAR",
-        "motivo": "Passou pelos filtros." if approved else "; ".join(reasons),
-    }
+        "motivo": "Passou pelos filtros de odds + histórico H2H." if approved else "; ".join(reasons),
+    })
+
     return item, item if approved else None
 
 
@@ -337,39 +595,36 @@ def run_analysis():
         STATE["erro"] = None
 
     try:
-        upcoming = upcoming_fixtures()
-        live = live_fixtures()
+        futures = upcoming()
+        lives = live_games()
 
-        todos, sinais = [], []
-        with_odds = analyzed = 0
+        todos = []
+        sinais = []
+        with_odds = 0
+        analyzed = 0
 
-        for f in upcoming:
+        # Evita uma explosão de chamadas caso o plano retorne milhares de partidas.
+        futures = futures[:180]
+
+        for f in futures:
             if not f.get("has_odds"):
-                home, away = team_names(f)
-                item = {
-                    "fixture_id": f.get("id"),
-                    "jogo": f"{home} x {away}",
-                    "liga": league_name(f),
-                    "horario": local_start(f),
-                    "libertadores": is_libertadores(f),
-                    "internacional": is_international(f),
-                    "ao_vivo": False,
+                item = base_item(f, False)
+                item.update({
                     "status": "SEM ODDS",
-                    "motivo": "A SportMonks informou que esta partida não possui odds disponíveis.",
-                }
+                    "motivo": "A SportMonks informou que esta partida ainda não possui odds.",
+                    "h2h": {"disponivel": False, "jogos": 0, "ultimos": []},
+                })
                 todos.append(item)
                 continue
 
             with_odds += 1
             try:
-                odds = prematch_odds(f.get("id"))
-            except Exception as e:
-                odds = []
-                err = str(e)
-            else:
+                rows = prematch_odds(f.get("id"))
                 err = None
+            except Exception as e:
+                rows, err = [], str(e)
 
-            item, signal = analyze_market(f, odds, live=False, odds_error=err)
+            item, signal = analyze_market(f, rows, live=False, odds_error=err)
             if item.get("odd") is not None:
                 analyzed += 1
             todos.append(item)
@@ -377,12 +632,12 @@ def run_analysis():
                 sinais.append(signal)
 
         live_items = []
-        for f in live:
-            odds, live_err = live_odds(f.get("id"))
-            item, signal = analyze_market(f, odds, live=True, odds_error=live_err)
+        for f in lives:
+            rows, err = live_odds(f.get("id"))
+            item, signal = analyze_market(f, rows, live=True, odds_error=err)
             live_items.append(item)
-            # Sinal ao vivo só é marcado se a API realmente forneceu odds live.
             if signal:
+                signal = dict(signal)
                 signal["tipo_sinal"] = "AO VIVO"
                 sinais.append(signal)
 
@@ -393,7 +648,7 @@ def run_analysis():
             STATE.update({
                 "status": "online",
                 "ultima_atualizacao": agora().isoformat(timespec="seconds"),
-                "jogos_encontrados": len(upcoming),
+                "jogos_encontrados": len(futures),
                 "jogos_com_odds": with_odds,
                 "jogos_analisados": analyzed,
                 "libertadores": libertadores,
@@ -426,7 +681,7 @@ def status():
     with LOCK:
         return JSONResponse({
             "nome": "MATRIX - FUTEBOL",
-            "versao": "V3.2 LIBERTADORES + INTERNACIONAL + AO VIVO",
+            "versao": "V3.3 COMPLETA H2H + AO VIVO + SIMULADOR",
             "config": CONFIG,
             **STATE,
         })
@@ -440,7 +695,7 @@ def analisar():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.2"}
+    return {"ok": True, "versao": "3.3"}
 
 
 @app.get("/", response_class=HTMLResponse)
