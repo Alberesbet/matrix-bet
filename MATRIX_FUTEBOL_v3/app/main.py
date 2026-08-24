@@ -62,7 +62,10 @@ CONFIG = {
     "betfair_catalog_days": int(os.getenv("BETFAIR_CATALOG_DAYS", "7")),
     "demo_server_engine": os.getenv("MATRIX_DEMO_SERVER_ENGINE", "true").strip().lower() in ("1","true","yes","sim"),
     "demo_server_tick_seconds": int(os.getenv("MATRIX_DEMO_SERVER_TICK_SECONDS", "12")),
-    "demo_finish_grace_minutes": int(os.getenv("MATRIX_DEMO_FINISH_GRACE_MINUTES", "180")),
+    "demo_finish_grace_minutes": int(os.getenv("MATRIX_DEMO_FINISH_GRACE_MINUTES", "130")),
+    "sportmonks_reconcile_ttl": int(os.getenv("MATRIX_RECONCILE_TTL", "45")),
+    "sportmonks_reconcile_days_back": int(os.getenv("MATRIX_RECONCILE_DAYS_BACK", "2")),
+    "live_status_max_age_seconds": int(os.getenv("MATRIX_LIVE_STATUS_MAX_AGE", "75")),
 
     # Histórico DEMO compartilhado entre notebook/celular.
     # O arquivo é um cache de servidor. Os navegadores também reidratam a nuvem
@@ -272,6 +275,14 @@ def demo_cloud_snapshot():
         b for b in auto
         if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
     ]
+    running_auto = [
+        b for b in pending_auto
+        if str(b.get("status_operacional") or "") == "EM ANDAMENTO"
+    ]
+    waiting_final_auto = [
+        b for b in pending_auto
+        if str(b.get("status_operacional") or "") == "AGUARDANDO CONFIRMAÇÃO FINAL"
+    ]
     finished_auto = [
         b for b in auto
         if str(b.get("status") or "") in ("GANHOU", "PERDEU")
@@ -283,9 +294,9 @@ def demo_cloud_snapshot():
     wins = [b for b in bets if str(b.get("status") or "") == "GANHOU"]
     losses = [b for b in bets if str(b.get("status") or "") == "PERDEU"]
 
-    pending_events = {
+    running_events = {
         str(b.get("event_id") or b.get("fixture_id") or _norm_text(b.get("jogo")))
-        for b in pending_auto
+        for b in running_auto
         if str(b.get("event_id") or b.get("fixture_id") or _norm_text(b.get("jogo")))
     }
 
@@ -295,11 +306,7 @@ def demo_cloud_snapshot():
         if str(b.get("status") or "") not in ("CANCELADA", "ANULADA")
     )
     canceled_stake = sum(float(b.get("stake") or 0) for b in canceled)
-    open_stake = sum(
-        float(b.get("stake") or 0)
-        for b in bets
-        if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
-    )
+    open_stake = sum(float(b.get("stake") or 0) for b in pending_auto)
     settled_stake = sum(
         float(b.get("stake") or 0)
         for b in bets
@@ -312,8 +319,9 @@ def demo_cloud_snapshot():
         "bets": bets,
         "total": len(bets),
         "auto_demo_total": len(auto),
-        "auto_demo_em_andamento": len(pending_auto),
-        "auto_demo_partidas_em_andamento": len(pending_events),
+        "auto_demo_em_andamento": len(running_auto),
+        "auto_demo_partidas_em_andamento": len(running_events),
+        "auto_demo_aguardando_final": len(waiting_final_auto),
         "auto_demo_finalizadas": len(finished_auto),
         "vitorias": len(wins),
         "derrotas": len(losses),
@@ -369,6 +377,15 @@ BETFAIR_CATALOG_LAST_SYNC = 0.0
 BETFAIR_CATALOG_SYNC_LOCK = threading.RLock()
 SPORTMONKS_SETTLE_CACHE = {}
 SPORTMONKS_SETTLE_TTL = 60
+
+SPORTMONKS_RECONCILE_LOCK = threading.RLock()
+SPORTMONKS_RECONCILE_CACHE = {
+    "ts": 0.0,
+    "fixtures": [],
+    "live_ids": set(),
+    "live_names": set(),
+    "error": None,
+}
 
 
 
@@ -1196,7 +1213,12 @@ def betfair_live_payload():
     if api_live:
         return api_live
 
-    live = betfair_live_markets()
+    # Sem API Betfair, NÃO contamos mais "provável ao vivo" como ao vivo real.
+    # Somente linhas explicitamente confirmadas como in-play entram aqui.
+    live = [
+        m for m in betfair_live_markets()
+        if str(m.get("live_source") or "") == "CONFIRMADO"
+    ]
     items = []
     for m in live:
         start = m.get("start_time")
@@ -1215,7 +1237,7 @@ def betfair_live_payload():
             "horario": start,
             "start_time_iso": dt.isoformat() if dt else None,
             "ao_vivo": True,
-            "status": "AO VIVO BETFAIR",
+            "status": "AO VIVO CONFIRMADO",
             "placar": m.get("placar"),
             "tempo_jogo": m.get("tempo_jogo") or (f"~{elapsed} min" if elapsed is not None else None),
             "market_id": m.get("market_id"),
@@ -1894,6 +1916,215 @@ def enrich_demo_candidates_with_runner_volume(candidates):
 
 
 
+
+def _fixture_pair(f):
+    home, away = participants(f)
+    return _norm_text(home.get("name")), _norm_text(away.get("name"))
+
+
+def _bet_pair(bet):
+    home = _norm_text(bet.get("casa"))
+    away = _norm_text(bet.get("fora"))
+    if home and away:
+        return home, away
+    return _event_pair(bet.get("jogo"))
+
+
+def _team_name_close(a, b):
+    a = _norm_text(a)
+    b = _norm_text(b)
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+
+    # Remove common club prefixes/suffixes for a conservative fallback.
+    stop = {
+        "fc", "fk", "if", "sc", "cf", "afc", "ac", "club", "clube",
+        "football", "futebol", "de", "da", "do", "the"
+    }
+    ta = [x for x in a.split() if x not in stop]
+    tb = [x for x in b.split() if x not in stop]
+    if not ta or not tb:
+        return False
+
+    sa, sb = set(ta), set(tb)
+    inter = len(sa & sb)
+    return inter >= max(1, min(len(sa), len(sb)) - 1)
+
+
+def _sportmonks_reconcile_pool(force=False):
+    """
+    Uma única consulta compartilhada serve para TODAS as apostas pendentes.
+    Inclui partidas recentes/finalizadas e a lista in-play atual.
+    """
+    now_ts = time.time()
+
+    with SPORTMONKS_RECONCILE_LOCK:
+        age = now_ts - float(SPORTMONKS_RECONCILE_CACHE.get("ts") or 0)
+        if (
+            not force
+            and SPORTMONKS_RECONCILE_CACHE.get("fixtures")
+            and age <= CONFIG["sportmonks_reconcile_ttl"]
+        ):
+            return {
+                "fixtures": list(SPORTMONKS_RECONCILE_CACHE["fixtures"]),
+                "live_ids": set(SPORTMONKS_RECONCILE_CACHE["live_ids"]),
+                "live_names": set(SPORTMONKS_RECONCILE_CACHE["live_names"]),
+                "error": SPORTMONKS_RECONCILE_CACHE.get("error"),
+                "age": age,
+            }
+
+    start = (agora() - timedelta(days=CONFIG["sportmonks_reconcile_days_back"])).date()
+    end = (agora() + timedelta(days=1)).date()
+
+    fixtures = []
+    live_rows = []
+    err = None
+
+    try:
+        fixtures = get_pages(
+            f"/fixtures/between/{start.isoformat()}/{end.isoformat()}",
+            {"include": "participants;league.country;state;scores"},
+            max_pages=20,
+        )
+    except Exception as e:
+        err = f"fixtures: {e}"
+
+    try:
+        live_rows = live_games()
+    except Exception as e:
+        if err:
+            err += f" | livescores: {e}"
+        else:
+            err = f"livescores: {e}"
+
+    live_ids = {
+        str(f.get("id"))
+        for f in live_rows
+        if f.get("id") is not None
+    }
+    live_names = set()
+    for f in live_rows:
+        h, a = _fixture_pair(f)
+        if h and a:
+            live_names.add((h, a))
+            live_names.add((a, h))
+
+    with SPORTMONKS_RECONCILE_LOCK:
+        SPORTMONKS_RECONCILE_CACHE["ts"] = time.time()
+        SPORTMONKS_RECONCILE_CACHE["fixtures"] = list(fixtures)
+        SPORTMONKS_RECONCILE_CACHE["live_ids"] = set(live_ids)
+        SPORTMONKS_RECONCILE_CACHE["live_names"] = set(live_names)
+        SPORTMONKS_RECONCILE_CACHE["error"] = err
+
+    return {
+        "fixtures": fixtures,
+        "live_ids": live_ids,
+        "live_names": live_names,
+        "error": err,
+        "age": 0,
+    }
+
+
+def _match_bet_to_fixture(bet, pool):
+    """
+    Liga apostas antigas ao SportMonks mesmo quando o Fixture ID não foi salvo.
+    Critérios:
+      1. Fixture ID já existente;
+      2. nomes Casa/Fora;
+      3. horário próximo como desempate.
+    """
+    fixtures = pool.get("fixtures") or []
+    fid = str(bet.get("fixture_id") or "").strip()
+
+    if fid:
+        for f in fixtures:
+            if str(f.get("id")) == fid:
+                return f
+
+    bh, ba = _bet_pair(bet)
+    if not bh or not ba:
+        return None
+
+    bet_dt = _flex_start_dt(bet.get("horario") or bet.get("start_time"))
+    candidates = []
+
+    for f in fixtures:
+        fh, fa = _fixture_pair(f)
+        if not fh or not fa:
+            continue
+
+        exact = (bh == fh and ba == fa)
+        reverse = (bh == fa and ba == fh)
+        fuzzy = (
+            _team_name_close(bh, fh) and _team_name_close(ba, fa)
+        ) or (
+            _team_name_close(bh, fa) and _team_name_close(ba, fh)
+        )
+
+        if not (exact or reverse or fuzzy):
+            continue
+
+        score = 100 if exact else (85 if reverse else 65)
+        fixture_dt = parse_dt(f.get("starting_at"))
+        delta = 10**12
+
+        if bet_dt and fixture_dt:
+            delta = abs((bet_dt - fixture_dt).total_seconds())
+            if delta <= 15 * 60:
+                score += 35
+            elif delta <= 60 * 60:
+                score += 20
+            elif delta <= 3 * 60 * 60:
+                score += 5
+            else:
+                score -= 35
+
+        candidates.append((score, delta, f))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    if candidates[0][0] < 60:
+        return None
+    return candidates[0][2]
+
+
+def _fixture_is_live_now(f, pool):
+    if not f:
+        return False
+
+    fid = str(f.get("id") or "")
+    if fid and fid in (pool.get("live_ids") or set()):
+        return True
+
+    h, a = _fixture_pair(f)
+    if (h, a) in (pool.get("live_names") or set()):
+        return True
+
+    return False
+
+
+def _fixture_final_payload(f):
+    if not f:
+        return None
+
+    home, away = participants(f)
+    scores = h2h_score_by_team(f)
+    return {
+        "fixture_id": str(f.get("id") or ""),
+        "finished": _fixture_finished_state(f),
+        "home": home.get("name"),
+        "away": away.get("name"),
+        "home_goals": scores.get(home.get("id")),
+        "away_goals": scores.get(away.get("id")),
+        "state": state_text(f),
+        "source": "SPORTMONKS_RECONCILE",
+    }
+
+
 def _fixture_finished_state(f):
     st = f.get("state") or {}
     raw = " ".join([
@@ -2014,7 +2245,20 @@ def _settle_bet_object(b, won, source, result_text=None):
     return b
 
 
-def demo_server_settle_pending():
+def demo_server_settle_pending(force_reconcile=False):
+    """
+    Corrige o problema de partidas antigas ficarem para sempre como AO VIVO.
+
+    Fontes de finalização:
+      1) Betfair API oficial, se conectada;
+      2) BF Bot CSV com vencedor;
+      3) SportMonks por Fixture ID;
+      4) SportMonks por casamento automático de times + horário.
+
+    Nunca inventa vitória/derrota. Se a partida já saiu do ao vivo mas o
+    resultado ainda não chegou, ela sai de "EM ANDAMENTO" e passa a
+    "AGUARDANDO CONFIRMAÇÃO FINAL".
+    """
     with DEMO_CLOUD_LOCK:
         bets = [dict(x) for x in DEMO_CLOUD_BETS]
 
@@ -2023,13 +2267,19 @@ def demo_server_settle_pending():
         if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
     ]
     if not pending:
-        return {"alteradas": 0, "pendentes": 0}
+        return {
+            "alteradas": 0,
+            "pendentes": 0,
+            "em_andamento": 0,
+            "aguardando_final": 0,
+        }
 
     market_ids = [
         str(b.get("market_id") or "")
         for b in pending
         if str(b.get("market_id") or "")
     ]
+
     bf_results = betfair_market_results(market_ids) if _betfair_api_ready() else {}
     csv_results = {
         str(r.get("market_id") or ""): r
@@ -2037,77 +2287,150 @@ def demo_server_settle_pending():
         if str(r.get("market_id") or "")
     }
 
+    pool = _sportmonks_reconcile_pool(force=force_reconcile)
     changed = 0
+    linked_now = 0
     by_key = {_demo_bet_key(b): b for b in bets if _demo_bet_key(b)}
 
     for bet in pending:
         key = _demo_bet_key(bet)
         if not key or key not in by_key:
             continue
+
         b = by_key[key]
         mid = str(b.get("market_id") or "")
 
-        # 1) Betfair API
+        # ----------------------------------------------------
+        # 1) BETFAIR API
+        # ----------------------------------------------------
         api = bf_results.get(mid) or {}
-        if api.get("ok") and api.get("status") == "CLOSED":
-            winners = api.get("winners") or []
-            if winners:
-                sel = _norm_text(b.get("selecao"))
-                won = any(
-                    sel == _norm_text(w)
-                    or sel in _norm_text(w)
-                    or _norm_text(w) in sel
-                    for w in winners
-                )
-                _settle_bet_object(
-                    b, won, "BETFAIR_API",
-                    "Vencedor(es): " + ", ".join(winners)
-                )
-                changed += 1
+        if api.get("ok"):
+            b["betfair_market_status"] = api.get("status")
+            b["betfair_inplay"] = bool(api.get("inplay"))
+            b["betfair_total_matched_atual"] = api.get("total_matched")
+
+            if api.get("status") == "CLOSED":
+                winners = api.get("winners") or []
+                if winners:
+                    sel = _norm_text(b.get("selecao"))
+                    won = any(
+                        sel == _norm_text(w)
+                        or sel in _norm_text(w)
+                        or _norm_text(w) in sel
+                        for w in winners
+                    )
+                    _settle_bet_object(
+                        b,
+                        won,
+                        "BETFAIR_API",
+                        "Vencedor(es): " + ", ".join(winners),
+                    )
+                    changed += 1
+                    continue
+
+            if api.get("inplay"):
+                b["status_operacional"] = "EM ANDAMENTO"
+                b["confirmacao_ao_vivo"] = "BETFAIR_API"
                 continue
 
-        # 2) CSV BF Bot
+        # ----------------------------------------------------
+        # 2) BF BOT CSV
+        # ----------------------------------------------------
         csvr = csv_results.get(mid)
         if csvr and csvr.get("winners"):
             winner = _norm_text(csvr.get("winners"))
             sel = _norm_text(b.get("selecao"))
             if winner and sel:
                 won = (winner in sel or sel in winner)
-                _settle_bet_object(b, won, "BFBOT_CSV", str(csvr.get("winners")))
+                _settle_bet_object(
+                    b,
+                    won,
+                    "BFBOT_CSV",
+                    str(csvr.get("winners")),
+                )
                 changed += 1
                 continue
 
-        # 3) SportMonks
-        if b.get("fixture_id"):
-            final = _sportmonks_fixture_final(b.get("fixture_id"))
-            won = _selection_won_from_score(b, final)
-            if won is not None:
-                score = f"{final.get('home_goals')} x {final.get('away_goals')}"
-                _settle_bet_object(b, bool(won), "SPORTMONKS", score)
-                changed += 1
+        # ----------------------------------------------------
+        # 3/4) SPORTMONKS - ID OU TIMES/HORÁRIO
+        # ----------------------------------------------------
+        fixture = _match_bet_to_fixture(b, pool)
+
+        if fixture:
+            if not b.get("fixture_id"):
+                b["fixture_id"] = str(fixture.get("id") or "")
+                home, away = participants(fixture)
+                b["casa"] = b.get("casa") or home.get("name")
+                b["fora"] = b.get("fora") or away.get("name")
+                b["liga"] = b.get("liga") or league_name(fixture)
+                linked_now += 1
+
+            final = _fixture_final_payload(fixture)
+
+            if final and final.get("finished"):
+                won = _selection_won_from_score(b, final)
+                if won is not None:
+                    score = f"{final.get('home_goals')} x {final.get('away_goals')}"
+                    _settle_bet_object(
+                        b,
+                        bool(won),
+                        "SPORTMONKS",
+                        score,
+                    )
+                    changed += 1
+                    continue
+
+            if _fixture_is_live_now(fixture, pool):
+                b["status_operacional"] = "EM ANDAMENTO"
+                b["confirmacao_ao_vivo"] = "SPORTMONKS"
+                b["provavelmente_encerrada"] = False
                 continue
 
-        # Não deixa uma partida antiga parecer "ao vivo" indefinidamente.
+        # ----------------------------------------------------
+        # 5) HORÁRIO: NÃO DEIXA ROLAR 3 HORAS COMO AO VIVO
+        # ----------------------------------------------------
         dt = _flex_start_dt(b.get("horario") or b.get("start_time"))
+        elapsed = None
+
         if dt:
             elapsed = (agora() - dt).total_seconds() / 60.0
-            if elapsed > CONFIG["demo_finish_grace_minutes"]:
-                b["status_operacional"] = "AGUARDANDO CONFIRMAÇÃO FINAL"
-                b["provavelmente_encerrada"] = True
+            b["minutos_desde_inicio"] = round(elapsed, 1)
+
+        if elapsed is not None and elapsed > CONFIG["demo_finish_grace_minutes"]:
+            b["status_operacional"] = "AGUARDANDO CONFIRMAÇÃO FINAL"
+            b["provavelmente_encerrada"] = True
+            b["confirmacao_ao_vivo"] = None
+        elif elapsed is not None and elapsed >= 0:
+            # Só mantém em andamento quando ainda está dentro da janela razoável.
+            b["status_operacional"] = "EM ANDAMENTO"
+        else:
+            b["status_operacional"] = "AGUARDANDO INÍCIO"
 
     with DEMO_CLOUD_LOCK:
         DEMO_CLOUD_BETS[:] = list(by_key.values())
         globals()["DEMO_CLOUD_UPDATED_AT"] = agora().isoformat()
         _demo_cloud_save_locked()
 
+    vals = list(by_key.values())
     return {
         "alteradas": changed,
+        "vinculadas_sportmonks_agora": linked_now,
         "pendentes": sum(
-            1 for b in by_key.values()
+            1 for b in vals
             if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
         ),
+        "em_andamento": sum(
+            1 for b in vals
+            if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+            and str(b.get("status_operacional") or "") == "EM ANDAMENTO"
+        ),
+        "aguardando_final": sum(
+            1 for b in vals
+            if str(b.get("status") or "") == "AGUARDANDO RESULTADO"
+            and str(b.get("status_operacional") or "") == "AGUARDANDO CONFIRMAÇÃO FINAL"
+        ),
+        "reconcile_error": pool.get("error"),
     }
-
 
 
 def _demo_server_available_bank(bets):
@@ -2224,7 +2547,7 @@ def demo_server_tick(force=False):
             return {"ativo": True, "cache": True}
 
         catalog = betfair_catalogue_auto_sync(force=False)
-        settled = demo_server_settle_pending()
+        settled = demo_server_settle_pending(force_reconcile=force)
         snap = demo_auto_snapshot()
         opened = demo_server_open_candidates(snap.get("candidatos") or [])
 
@@ -3518,7 +3841,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.21 SERVIDOR UNICO + FINALIZACAO BETFAIR + BRASIL",
+        "versao": "V3.22 AO VIVO REAL + FINALIZACAO AUTOMATICA + RECONCILIACAO",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -3586,6 +3909,7 @@ async def sync_demo_bets_cloud(request: Request):
 @app.post("/api/analisar")
 def analisar():
     run_analysis()
+    demo_server_tick(force=True)
     return status()
 
 
@@ -3752,7 +4076,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.21", "servidor_unico": True}
+    return {"ok": True, "versao": "3.22", "servidor_unico": True, "reconciliacao": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -3763,6 +4087,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.21",
+            "X-Matrix-Version": "3.22",
         },
     )

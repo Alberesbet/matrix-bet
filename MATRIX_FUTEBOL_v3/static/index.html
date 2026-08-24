@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.21">
+<body data-matrix-version="3.22">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.21 • SERVIDOR ÚNICO • FINALIZAÇÃO BETFAIR • BRASIL</div>
+      <div class="sub">V3.22 • AO VIVO ATUALIZADO • FINALIZAÇÃO AUTOMÁTICA • BRASIL</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -52,8 +52,9 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <b>☁ DEMO SINCRONIZADA</b><br>
     Notebook e celular usam o MESMO histórico do servidor.
     “Minhas apostas”, AUTO DEMO, saldo, cancelamentos e resultados ficam iguais.
-    AO VIVO conta partidas; “Em andamento” conta apostas. Se houver 2 ou 3 mercados
-    na mesma partida, esses números podem ser diferentes.
+    AO VIVO agora usa Betfair API quando conectada; sem ela, usa somente o
+    SportMonks in-play atual. Mercado antigo do CSV não fica mais contado como AO VIVO.
+    “Partidas em andamento” considera apenas apostas de jogos que ainda estão realmente em andamento.
   </div>
 
   <div class="grid">
@@ -68,12 +69,15 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Saldo DEMO</div><div id="demoBalance" class="big">R$ 1.000,00</div></div>
     <div class="card"><div class="label">Auto DEMO feitas</div><div id="demoAutoCount" class="big">0</div></div>
     <div class="card"><div class="label">Oportunidades agora</div><div id="demoOpportunityCount" class="big">0</div></div>
-    <div class="card"><div class="label">Em andamento</div><div id="demoRunningCount" class="big">0</div></div>
+    <div class="card"><div class="label">Partidas em andamento</div><div id="demoRunningCount" class="big">0</div></div>
+    <div class="card"><div class="label">Entradas pendentes</div><div id="demoPendingCount" class="big">0</div></div>
+    <div class="card"><div class="label">Aguardando resultado</div><div id="demoWaitingFinalCount" class="big">0</div></div>
     <div class="card"><div class="label">Finalizadas</div><div id="demoFinishedCount" class="big">0</div></div>
     <div class="card"><div class="label">Vitórias</div><div id="demoWinsCount" class="big">0</div></div>
     <div class="card"><div class="label">Derrotas</div><div id="demoLossesCount" class="big">0</div></div>
     <div class="card"><div class="label">Canceladas</div><div id="demoCanceledCount" class="big">0</div></div>
     <div class="card"><div class="label">Sincronização</div><div id="cloudSyncStatus" class="big" style="font-size:18px">CONECTANDO</div></div>
+    <div class="card"><div class="label">Fonte AO VIVO</div><div id="liveSourceStatus" class="big" style="font-size:16px">...</div></div>
   </div>
 
   <div class="tabs">
@@ -216,7 +220,9 @@ function updateDemoCounters(){
   if($('demoOpportunityCount')){
     $('demoOpportunityCount').textContent=((state&&state.demo_auto&&state.demo_auto.total_candidatos)||0);
   }
-  if($('demoRunningCount'))$('demoRunningCount').textContent=cloud.auto_demo_em_andamento??0;
+  if($('demoRunningCount'))$('demoRunningCount').textContent=cloud.auto_demo_partidas_em_andamento??0;
+  if($('demoPendingCount'))$('demoPendingCount').textContent=cloud.pendentes??0;
+  if($('demoWaitingFinalCount'))$('demoWaitingFinalCount').textContent=cloud.auto_demo_aguardando_final??0;
   if($('demoFinishedCount'))$('demoFinishedCount').textContent=cloud.auto_demo_finalizadas??0;
   if($('demoWinsCount'))$('demoWinsCount').textContent=cloud.vitorias??0;
   if($('demoLossesCount'))$('demoLossesCount').textContent=cloud.derrotas??0;
@@ -340,7 +346,7 @@ function currentMonthBets(){
 
 function renderMonthlySummary(){
   const bets=currentMonthBets();
-  let wins=0,losses=0,pending=0,canceled=0,finished=0;
+  let wins=0,losses=0,pending=0,running=0,waitingFinal=0,canceled=0,finished=0;
   let profit=0,effectiveStake=0,canceledStake=0,openStake=0,totalMovement=0;
 
   bets.forEach(b=>{
@@ -357,6 +363,8 @@ function renderMonthlySummary(){
       canceled++; canceledStake+=stake;
     }else{
       pending++; effectiveStake+=stake; openStake+=stake;
+      if(b.status_operacional==='EM ANDAMENTO')running++;
+      if(b.status_operacional==='AGUARDANDO CONFIRMAÇÃO FINAL')waitingFinal++;
     }
   });
 
@@ -367,20 +375,23 @@ function renderMonthlySummary(){
     <div class="smallgrid">
       <div class="mini">Apostas totais<b>${bets.length}</b></div>
       <div class="mini">Auto DEMO realizadas<b>${auto}</b></div>
-      <div class="mini">Em andamento<b>${pending}</b></div>
+      <div class="mini">Entradas pendentes<b>${pending}</b></div>
+      <div class="mini">Em andamento agora<b>${running}</b></div>
+      <div class="mini">Aguardando resultado<b>${waitingFinal}</b></div>
       <div class="mini">Finalizadas<b>${finished}</b></div>
       <div class="mini">Vitórias<b>${wins}</b></div>
       <div class="mini">Derrotas<b>${losses}</b></div>
       <div class="mini">Canceladas manualmente<b>${canceled}</b></div>
       <div class="mini">Valor efetivamente apostado<b>${money(effectiveStake)}</b></div>
-      <div class="mini">Valor em andamento<b>${money(openStake)}</b></div>
+      <div class="mini">Valor pendente<b>${money(openStake)}</b></div>
       <div class="mini">Valor cancelado/devolvido<b>${money(canceledStake)}</b></div>
       <div class="mini">Movimentação registrada<b>${money(totalMovement)}</b></div>
       <div class="mini">Lucro/Prejuízo realizado<b>${money(profit)}</b></div>
     </div>
     <div class="reason">
-      <b>Importante:</b> “Valor efetivamente apostado” não soma canceladas.
-      “Movimentação registrada” mostra tudo que chegou a ser lançado, inclusive cancelamentos.
+      <b>V3.22:</b> jogo que ultrapassou a janela normal deixa imediatamente
+      “Em andamento”. Ele passa para “Aguardando resultado” até Betfair/SportMonks
+      confirmarem o placar, sem inventar vitória ou derrota.
     </div>
     <div class="row"><span>Saldo demo disponível</span><b class="money">${money(demoStats().available)}</b></div>
   </div>`;
@@ -1138,12 +1149,23 @@ async function refresh(){
     $('jogos').textContent=state.jogos_encontrados||0;
     $('lib').textContent=(state.libertadores||[]).length;
     {
+      const betfairApiConnected=!!(state.betfair_api&&state.betfair_api.conectada);
+      const source = betfairApiConnected
+        ? (state.betfair_ao_vivo||[])
+        : (state.ao_vivo||[]);
+
       const liveKeys=new Set();
-      [...(state.betfair_ao_vivo||[]), ...(state.ao_vivo||[])].forEach(x=>{
+      source.forEach(x=>{
         liveKeys.add(String(x.event_id||x.fixture_id||x.jogo||''));
       });
       liveKeys.delete('');
       $('live').textContent=liveKeys.size;
+
+      if($('liveSourceStatus')){
+        $('liveSourceStatus').textContent = betfairApiConnected
+          ? 'BETFAIR API'
+          : 'SPORTMONKS';
+      }
     }
     $('intl').textContent=(state.internacionais||[]).length;
     $('odds').textContent=state.jogos_com_odds||0;

@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v321-fresh";
+const CACHE="matrix-futebol-v322-fresh";
 const STATIC=[
   "/static/manifest.webmanifest",
   "/static/icon-192.png",
