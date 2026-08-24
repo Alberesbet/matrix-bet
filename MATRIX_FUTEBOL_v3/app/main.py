@@ -158,7 +158,7 @@ def startup():
 def status():
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V2 RENDER MOBILE",
+        "versao": "V3 SINAIS MOBILE",
         "config": CONFIG,
         **STATE
     })
