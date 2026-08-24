@@ -732,11 +732,16 @@ def run_analysis():
 
 def _betfair_selection_name(signal):
     """
-    Bf Bot Manager matches tips to Betfair selections.
-    Team names are exported as-is; a draw is exported using Betfair's
-    conventional 'The Draw' selection name.
+    With SportMonksFixtureId, Bf Bot Manager can resolve HOME/AWAY to the
+    correct Betfair team selection near event start.
+    For draw, use Betfair's static selection name.
     """
-    if signal.get("codigo_selecao") == "DRAW" or str(signal.get("selecao") or "").lower() == "empate":
+    code = str(signal.get("codigo_selecao") or "").upper()
+    if code == "HOME":
+        return "HOME"
+    if code == "AWAY":
+        return "AWAY"
+    if code == "DRAW" or str(signal.get("selecao") or "").strip().lower() == "empate":
         return "The Draw"
     return str(signal.get("selecao") or "").strip()
 
@@ -793,11 +798,14 @@ def bfbot_tips():
 
         rows.append({
             "Provider": CONFIG["bfbot_provider"],
+            "SportMonksFixtureId": str(s.get("fixture_id") or ""),
             "SelectionName": selection,
             "MarketType": "MATCH_ODDS",
             "BetType": "BACK",
             "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
+            "BSP": "false",
             "EventName": str(s.get("jogo") or ""),
+            "StartTime": str(s.get("start_time_iso") or ""),
         })
 
         if len(rows) >= CONFIG["bfbot_max_tips"]:
@@ -807,7 +815,7 @@ def bfbot_tips():
 
 
 def bfbot_csv_text():
-    fields = ["Provider", "SelectionName", "MarketType", "BetType", "Size", "EventName"]
+    fields = ["Provider", "SportMonksFixtureId", "SelectionName", "MarketType", "BetType", "Size", "BSP", "EventName", "StartTime"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
@@ -839,7 +847,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.5.1 BFBOT CORRIGIDO",
+        "versao": "V3.5.2 BFBOT SPORTMONKS ID + BSP OFF",
         "config": CONFIG,
         "conta": account_info(),
         "bfbot": {
@@ -886,6 +894,8 @@ def bfbot_status():
         "provider": CONFIG["bfbot_provider"],
         "tips_prontas": len(tips),
         "feed_path": "/bfbot/tips.csv",
+        "sportmonks_fixture_id": True,
+        "bsp": False,
         "market_type": "MATCH_ODDS",
         "bet_type": "BACK",
         "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
@@ -895,7 +905,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.5.1"}
+    return {"ok": True, "versao": "3.5.2"}
 
 
 @app.get("/", response_class=HTMLResponse)
