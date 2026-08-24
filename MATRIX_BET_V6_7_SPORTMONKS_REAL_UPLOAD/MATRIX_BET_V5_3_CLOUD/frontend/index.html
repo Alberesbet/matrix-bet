@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07271f">
+<title>MATRIX BET V5.3 CLOUD</title>
+<style>
+:root{
+  --bg:#080c0d;--bg2:#0c1113;--panel:#11191c;--panel2:#182126;--panel3:#20292d;
+  --line:#2d393e;--green:#48e0ad;--green2:#20c58f;--yellow:#f1e43f;
+  --text:#f5f7f8;--mut:#99a5aa;--red:#ff574d;
+}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input{font:inherit}button{cursor:pointer}.hidden{display:none!important}
+.top{height:68px;display:flex;align-items:center;gap:16px;padding:0 18px;background:#08271f;border-bottom:1px solid #194739;position:sticky;top:0;z-index:60}
+.logo{font-size:25px;font-weight:1000;letter-spacing:-1.3px}.logo b{color:var(--yellow)}.spacer{flex:1}
+.topnav{display:flex;height:100%}.topnav button{height:100%;padding:0 15px;border:0;background:transparent;color:#d8dfe1;font-weight:900;font-size:12px}.topnav button.active{color:var(--green);border-bottom:3px solid var(--green)}
+.userBox{display:flex;align-items:center;gap:9px}.userCard{border:1px solid #345048;background:#0f191b;border-radius:9px;padding:7px 10px}.userCard small{display:block;font-size:8px;color:#8e9ba0}.userCard b{font-size:11px}.bal{color:var(--green)!important}
+.btn{border:0;border-radius:8px;padding:10px 13px;font-weight:900}.primary{background:var(--yellow);color:#111}.ghost{background:#192426;color:#fff;border:1px solid #354146}.danger{background:#35191a;color:#ffaaa3;border:1px solid #633234}
+.layout{display:grid;grid-template-columns:210px minmax(0,1fr) 330px;max-width:1700px;margin:auto}
+.side{min-height:calc(100vh - 68px);border-right:1px solid var(--line);padding:14px 10px;background:#091113}.sideTitle{font-size:10px;color:#66757b;margin:17px 10px 6px;font-weight:900}.side button{width:100%;display:flex;gap:10px;align-items:center;padding:10px;border:0;border-radius:7px;background:transparent;color:#dbe1e3;text-align:left}.side button:hover,.side button.on{background:#172126;color:var(--green)}.side button span{flex:1}.side em{font-style:normal;font-size:9px;color:#9eaaae}
+main{padding:15px;min-width:0}.right{border-left:1px solid var(--line);padding:15px 12px;background:#071013}
+.heroRow{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:10px;margin-bottom:12px}.hero{min-height:135px;padding:17px;border:1px solid var(--line);border-radius:10px;background:radial-gradient(circle at 82% 30%,#57db2e55,transparent 28%),linear-gradient(135deg,#111a1e,#102018)}.hero small{color:#b2bdc0}.hero h2{margin:7px 0;font-size:26px}.hero h2 span{color:var(--green)}
+.search{width:100%;height:48px;margin-bottom:10px;border:1px solid var(--line);border-radius:8px;background:#0c1417;color:#fff;padding:0 13px}
+.leagues,.markets{display:flex;gap:7px;overflow:auto;scrollbar-width:none;margin-bottom:10px}.leagues::-webkit-scrollbar,.markets::-webkit-scrollbar{display:none}.leagues button,.markets button{flex:0 0 auto;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:#11191d;color:#d8dfe1}.leagues button.on{color:var(--green);border-color:#5e9e3d;background:#132315}.markets button{border-radius:20px}.markets button.on{background:#fff;color:#111}
+.panel{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#0d1518;margin-bottom:12px}.head{display:flex;align-items:center;padding:11px 12px;background:#111d21;font-weight:900}.head span{margin-left:auto;color:#86959a;font-size:10px}
+.bookHead,.event{display:grid;grid-template-columns:minmax(220px,1.5fr) repeat(3,minmax(72px,.55fr)) 50px}.bookHead{padding:8px;color:#839196;font-size:10px}.bookHead div:not(:first-child){text-align:center}.group{padding:8px 11px;background:#1d472e;color:#e6f5df;font-weight:900;font-size:11px}.event{border-top:1px solid #263035}.info{padding:11px}.info small{display:block;color:#849297}.info b{display:block;font-size:12px}.odd{margin:5px 3px;border:1px solid #2b373c;border-radius:4px;background:#151e22;color:#edf158;font-weight:950;font-size:18px}.odd.sel{background:#284521;color:#ecff8f;border-color:#6ba944}.more{display:grid;place-items:center;color:#93a0a5;font-size:10px}
+.liveTitle{padding:11px;background:#15291d;font-weight:900}.liveRow{display:grid;grid-template-columns:minmax(200px,1.4fr) repeat(3,82px);border-top:1px solid #2a3539}.liveRow .info small{color:var(--green);font-weight:900}
+.coupon{border:1px solid var(--line);border-radius:9px;background:#0d1518;overflow:hidden}.couponHead{padding:12px;border-bottom:1px solid var(--line);font-weight:900}.couponBody{padding:12px}.empty{text-align:center;color:#7f8d92;padding:34px 10px}.slip{padding:10px;border:1px solid #29353a;border-radius:7px;background:#111a1e;margin-bottom:8px}.slip small{color:#859297}.slipTop{display:flex;justify-content:space-between}.remove{border:0;background:none;color:#8a979d}.stake{display:grid;grid-template-columns:1fr 78px;gap:7px}.stake input{height:42px;border:1px solid var(--line);border-radius:5px;background:#071013;color:#fff;padding:0 10px}.ret{display:flex;justify-content:space-between;padding:10px 0}.ret strong{color:var(--green)}
+.betcard{padding:12px;border:1px solid var(--line);border-radius:8px;background:#0e171a;margin-bottom:8px}.wallet{padding:18px;border:1px solid #31564a;border-radius:11px;background:linear-gradient(135deg,#11271f,#0d1818);margin-bottom:10px}.wallet strong{display:block;color:var(--green);font-size:32px;margin:5px 0 13px}
+.auth{min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(180deg,#062b22,#071013 45%)}.authCard{width:min(430px,100%);padding:24px;border:1px solid #315246;border-radius:14px;background:#0d1518}.authCard h2{margin:4px 0 8px}.authCard p{color:var(--mut)}.authCard input{width:100%;height:47px;margin:6px 0;border:1px solid var(--line);border-radius:7px;background:#070d0f;color:#fff;padding:0 11px}.tabs{display:flex;gap:7px;margin:12px 0}.tabs button{flex:1}.msg{min-height:18px;color:#e8e171;font-size:12px}
+.bottomNav{display:none}
+@media(max-width:1200px){.layout{grid-template-columns:190px minmax(0,1fr)}.right{display:none}.heroRow{grid-template-columns:1fr 1fr}.heroRow .hero:nth-child(3){display:none}}
+@media(max-width:850px){
+ .topnav,.side{display:none}.layout{display:block}.top{padding:0 10px}.top .logo{font-size:21px}.userCard{padding:6px 8px}.userCard small{font-size:7px}.userCard b{font-size:10px}
+ main{padding:10px 10px 80px}.heroRow{grid-template-columns:1fr}.heroRow .hero:not(:first-child){display:none}
+ .bookHead,.event{grid-template-columns:minmax(150px,1.25fr) repeat(3,70px) 36px}.odd{font-size:16px}.liveRow{grid-template-columns:minmax(150px,1.25fr) repeat(3,70px)}
+ .bottomNav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:100;height:70px;background:#202526;border-top:1px solid #363d3f;padding-bottom:max(3px,env(safe-area-inset-bottom))}
+ .bottomNav button{position:relative;flex:1;border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.bottomNav button b{font-size:10px}.bottomNav button.active{color:var(--green)}.bottomNav button.active:before{content:"";position:absolute;top:0;width:42px;height:3px;background:var(--green)}.ico{font-size:20px}.badge{position:absolute;top:4px;right:18%;background:var(--red);color:#fff;border-radius:10px;padding:2px 5px;font-size:8px;font-style:normal}
+}
+
+/* V5.2 MOBILE */
+.mobileCouponDrawer,.mobileCouponBtn{display:none}
+@media(max-width:850px){
+  body{overflow-x:hidden}
+  .top{height:60px!important;padding:0 8px!important}
+  .top .logo{font-size:19px!important}
+  .userBox{gap:5px!important}
+  .userCard{padding:5px 6px!important;border-radius:7px!important}
+  .userCard>div:first-child{display:none}
+  .userCard small{font-size:6.5px!important}
+  .userCard b{font-size:9px!important}
+  #logout{padding:8px 9px!important;font-size:9px!important}
+  .main{padding:9px 8px 86px!important}
+  .heroRow{margin-bottom:8px!important}
+  .hero{min-height:96px!important;padding:13px!important}
+  .hero h2{font-size:21px!important}
+  .hero small{font-size:10px!important}
+  .search{height:45px!important;font-size:14px!important;margin-bottom:8px!important}
+  .leagues,.markets{gap:6px!important;margin-bottom:8px!important;padding-bottom:2px!important}
+  .leagues button,.markets button{padding:9px 12px!important;font-size:12px!important}
+  .panel{border-radius:8px!important;margin-bottom:8px!important}
+  .head{padding:10px!important}
+  .bookHead,.event{grid-template-columns:minmax(128px,1.25fr) repeat(3,minmax(58px,.58fr)) 30px!important}
+  .bookHead{font-size:8px!important;padding:6px!important}
+  .group{padding:7px 8px!important;font-size:10px!important}
+  .info{padding:8px!important;min-width:0}
+  .info small{font-size:9px!important}
+  .info b{font-size:11px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .odd{margin:3px 2px!important;min-height:58px!important;font-size:16px!important;border-radius:5px!important}
+  .more{font-size:8px!important}
+  .liveRow{grid-template-columns:minmax(128px,1.25fr) repeat(3,minmax(58px,.58fr))!important}
+  .liveTitle{padding:9px!important;font-size:11px!important}
+  .right{display:none!important}
+  .bottomNav{height:68px!important}
+  .bottomNav button b{font-size:9px!important}
+  .bottomNav .ico{font-size:19px!important}
+  .badge{right:14%!important}
+  .mobileCouponBtn{
+    display:flex;position:fixed;right:12px;bottom:76px;z-index:120;
+    align-items:center;gap:6px;border:1px solid #4d775f;border-radius:999px;
+    background:#173126;color:#fff;padding:10px 13px;box-shadow:0 8px 24px #0008;
+    font-weight:900
+  }
+  .mobileCouponBtn.hidden{display:none!important}
+  .mobileCouponBtn span{font-size:17px}
+  .mobileCouponBtn b{font-size:11px}
+  .mobileCouponBtn em{
+    min-width:19px;height:19px;border-radius:999px;background:var(--yellow);
+    color:#111;font-size:9px;font-style:normal;display:grid;place-items:center
+  }
+  .mobileCouponDrawer{
+    position:fixed;inset:0;z-index:150;background:#0008;align-items:flex-end
+  }
+  .mobileCouponDrawer:not(.hidden){display:flex}
+  .mobileCouponSheet{
+    width:100%;max-height:78vh;overflow:auto;background:#0b1417;
+    border-radius:18px 18px 0 0;border-top:1px solid #334247;
+    padding:8px 10px calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -18px 45px #000b
+  }
+  .mobileCouponGrab{width:44px;height:4px;border-radius:4px;background:#4b565a;margin:2px auto 8px}
+  .mobileCouponTop{display:flex;align-items:center;padding:5px 3px 9px}
+  .mobileCouponTop b{font-size:14px}
+  .mobileCouponTop button{margin-left:auto;border:0;background:none;color:#fff;font-size:27px}
+  #mobileCouponBody .coupon{border:0!important;background:transparent!important}
+  #mobileCouponBody .couponHead{display:none!important}
+  #mobileCouponBody .couponBody{padding:0!important}
+  #mobileCouponBody .empty{padding:22px 8px!important}
+  .wallet{padding:15px!important}
+  .wallet strong{font-size:27px!important}
+  .betcard{font-size:12px!important}
+}
+@media(max-width:390px){
+  .bookHead,.event{grid-template-columns:minmax(112px,1.15fr) repeat(3,minmax(52px,.55fr)) 26px!important}
+  .liveRow{grid-template-columns:minmax(112px,1.15fr) repeat(3,minmax(52px,.55fr))!important}
+  .odd{font-size:14px!important}
+  .leagues button,.markets button{font-size:11px!important;padding:8px 10px!important}
+}
+
+
+.pwaChoice{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at 50% 12%,#164c3b 0,transparent 35%),linear-gradient(180deg,#061c17,#060b0d 70%)}
+.pwaChoice.hidden{display:none!important}
+.pwaChoiceCard{width:min(430px,100%);text-align:center;border:1px solid #315246;border-radius:20px;background:#0d1518;padding:28px 20px;box-shadow:0 25px 70px #000a}
+.pwaChoiceLogo{font-size:26px;font-weight:1000;letter-spacing:-1.2px}.pwaChoiceLogo b{color:#f1e43f}
+.pwaMark{width:92px;height:92px;margin:25px auto 20px;border:2px solid #43e0b0;border-radius:24px;display:grid;place-items:center;font-size:54px;font-weight:1000;color:#43e0b0;background:#102f27}
+.pwaChoice h1{margin:8px 0;font-size:27px}.pwaChoice p{color:#a8b3b6;line-height:1.5;margin:8px auto 22px;max-width:350px}
+.pwaChoice button{width:100%;min-height:52px;border-radius:10px;font-weight:1000;margin:6px 0}
+.pwaWebBtn{border:1px solid #415056;background:#172126;color:#fff}
+.pwaInstallBtn{border:0;background:#f1e43f;color:#111}
+.pwaChoice small{display:block;color:#77868b;margin-top:12px;line-height:1.4}
+
+
+.mxHelp{position:fixed;right:12px;bottom:84px;z-index:130;border:1px solid #477660;background:#173126;color:#fff;border-radius:999px;padding:10px 15px;font-weight:900}
+.mxModal{position:fixed;inset:0;z-index:200;background:#000a;display:grid;place-items:center;padding:16px}.mxModalCard{position:relative;width:min(430px,100%);max-height:85vh;overflow:auto;background:#0d1518;border:1px solid #33443d;border-radius:14px;padding:20px}.mxModalCard input,.mxModalCard select,.mxModalCard textarea{width:100%;margin:6px 0;border:1px solid #33413e;border-radius:7px;background:#07100d;color:#fff;padding:11px}.mxModalCard textarea{min-height:110px}.mxClose{position:absolute;right:9px;top:6px;border:0;background:none;color:#fff;font-size:25px}.mxModalCard hr{border:0;border-top:1px solid #283631;margin:15px 0}
+
+
+.profileTop{display:flex;align-items:center;gap:12px;margin-bottom:12px}.profileTop small{display:block;color:#91a19a;margin-top:3px}.profileAvatar{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;background:#173126;border:2px solid #43e0b0;font-size:34px;overflow:hidden}.profileAvatar img{width:100%;height:100%;object-fit:cover}.profileInfo{display:grid;gap:6px;margin-top:12px}.profileInfo label{font-size:11px;color:#8d9ba0}.profileInfo input:disabled{opacity:1;background:#10181a;color:#d9e0e2}
+
+
+#profileBtn{display:inline-flex;align-items:center;justify-content:center}
+@media(max-width:760px){
+  #profileBtn{display:inline-flex;padding:8px 10px;font-size:12px}
+}
+
+</style>
+
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#08271F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+
+
+<style id="v63-dashboard">
+.v63dash{display:grid;gap:12px;margin:10px 0 18px}.v63stats{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px}
+.v63card,.v63section{background:linear-gradient(145deg,#10191d,#0b1215);border:1px solid #26363c;border-radius:10px;padding:14px}
+.v63card small{color:#a5b0b4;display:block}.v63card strong{font-size:25px;color:#35e59a;display:block;margin:5px 0}
+.v63title{font-weight:900;margin-bottom:10px;display:flex;justify-content:space-between}.v63live{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:8px}
+.v63match{border:1px solid #29383e;border-radius:8px;padding:10px;background:#111a1e}.v63match b{display:block;margin:5px 0}
+.v63odds{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:8px}.v63odds span{background:#253039;padding:7px;text-align:center;border-radius:5px;color:#ffe75a;font-weight:800}
+.v63features{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.v63feature{text-align:center;min-height:90px;padding:14px 8px;border:1px solid #294039;border-radius:8px;background:#101a17}
+.v63feature strong{display:block;margin-top:8px}.v63recent{width:100%;border-collapse:collapse}.v63recent td,.v63recent th{padding:9px;border-bottom:1px solid #26343a;text-align:left;font-size:13px}
+@media(max-width:900px){.v63stats{grid-template-columns:repeat(2,1fr)}.v63live{grid-template-columns:1fr 1fr}.v63features{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.v63live{grid-template-columns:1fr}.v63features{grid-template-columns:1fr 1fr}.v63recent{font-size:11px}}
+</style>
+
+<style id="v64-market-css">
+.teamline{display:flex;align-items:center;gap:7px}.crest{width:24px;height:28px;display:inline-grid;place-items:center;border-radius:7px 7px 10px 10px;background:linear-gradient(160deg,#2f7355,#17251f);border:1px solid #65d6a4;color:white;font-size:9px;font-weight:950;letter-spacing:-.3px}
+.moreBtn{border:1px solid #345048;background:#12201b;color:#58dfa9;border-radius:7px;padding:8px 9px;font-weight:850;cursor:pointer}
+.v63match{cursor:pointer}.v63feature{cursor:pointer}.v63odds span{cursor:pointer}
+.marketModal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:120;display:flex;align-items:center;justify-content:center;padding:15px}
+.marketModal.hidden{display:none}.marketCard{width:min(920px,96vw);max-height:90vh;overflow:auto;background:#07110e;border:1px solid #315047;border-radius:14px;padding:16px}
+.marketTop{display:flex;justify-content:space-between;gap:12px;align-items:center;position:sticky;top:-16px;background:#07110e;padding:8px 0 12px;z-index:2}
+.marketClose{background:#3a1717;color:#ffb1b1;border:1px solid #703333;border-radius:8px;padding:8px 12px;font-weight:900;cursor:pointer}
+.marketGroup{margin:12px 0;border:1px solid #253a33;border-radius:10px;overflow:hidden}.marketGroup h4{margin:0;padding:10px 12px;background:#102019;color:#e6eee9}
+.marketGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px}.marketOdd{background:#1a2529;border:1px solid #35464d;color:#fff;border-radius:8px;padding:10px;text-align:left;cursor:pointer}
+.marketOdd strong{float:right;color:#ffe75a}.marketOdd.sel{outline:2px solid #36db91;background:#183026}
+@media(max-width:600px){.marketGrid{grid-template-columns:1fr 1fr}.marketCard{padding:10px}}
+</style>
+
+<style id="v65-filter-css">
+.marketEventRow{grid-template-columns:minmax(190px,1.25fr) minmax(420px,2fr) 105px!important;align-items:center}
+.inlineMarkets{display:grid;grid-template-columns:repeat(3,minmax(105px,1fr));gap:7px;padding:7px}
+.marketInline{background:#1a2529;border:1px solid #34454c;color:#dfe7e9;border-radius:8px;padding:9px 8px;text-align:left;cursor:pointer;min-height:54px}
+.marketInline span{font-size:11px;display:block;color:#cbd5d8}.marketInline strong{display:block;color:#ffe75a;font-size:16px;margin-top:3px}
+.marketInline.sel{outline:2px solid #35db91;background:#173027}
+@media(max-width:900px){.marketEventRow{grid-template-columns:1fr!important}.inlineMarkets{grid-template-columns:repeat(2,1fr)}}
+</style>
+<style id="v67-realfeed-css">
+.realFeedBar{margin:10px 0;padding:10px 12px;border:1px solid #285142;background:#0c1d17;border-radius:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.realFeedBar strong{color:#45e3a1}.realGames{display:grid;gap:9px}
+.realGame{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px;border:1px solid #2b3e37;border-radius:10px;background:#0d1713}
+.realTeam{font-weight:800;margin:5px 0}.realTeam img{width:25px;height:25px;object-fit:contain;border-radius:50%;background:#fff;vertical-align:middle;margin-right:7px}
+.realMeta{font-size:11px;color:#9fb0a9}.realOddsBtn{padding:9px 12px;border-radius:8px;border:1px solid #34644f;background:#113126;color:#61e8ad;font-weight:900}
+.realError{padding:12px;border:1px solid #6e3d28;background:#27160e;color:#ffc2a3;border-radius:9px}
+</style></head>
+<body>
+
+<section id="pwaChoice" class="pwaChoice hidden">
+  <div class="pwaChoiceCard">
+    <div class="pwaChoiceLogo">MATRIX <b>BET</b></div>
+    <div class="pwaMark">M</div>
+    <h1>Como você quer acessar?</h1>
+    <p>Use agora pelo navegador ou instale o MATRIX BET na tela inicial do celular.</p>
+    <button id="continueWeb" class="pwaWebBtn">CONTINUAR PELA WEB</button>
+    <button id="installPwa" class="pwaInstallBtn">⬇ INSTALAR APP</button>
+    <small id="installHelp">Instalação rápida pelo navegador. Não precisa baixar APK.</small>
+  </div>
+</section>
+
+<section id="authScreen" class="auth">
+  <div class="authCard">
+    <div class="logo">MATRIX <b>BET</b></div>
+    <h2>Conta MATRIX BET</h2>
+    <p>Cadastro e login validados pelo backend.</p>
+    <div class="tabs"><button class="btn primary" id="regTab">Criar conta</button><button class="btn ghost" id="loginTab">Entrar</button></div>
+    <input id="name" placeholder="Nome de usuário" autocomplete="username">
+    <input id="email" type="email" placeholder="E-mail" autocomplete="email">
+    <input id="cpf" inputmode="numeric" maxlength="14" placeholder="CPF" autocomplete="off">
+    <input id="password" type="password" placeholder="Senha (mín. 8 caracteres)">
+    <button class="btn primary" style="width:100%;margin-top:8px" id="submit">Criar conta</button>
+    <button class="btn ghost" style="width:100%;margin-top:7px" id="forgotBtn">Esqueci minha senha</button>
+    <div id="msg" class="msg"></div>
+  </div>
+</section>
+
+<section id="appScreen" class="hidden">
+<header class="top">
+  <div class="logo">MATRIX <b>BET</b></div>
+  <nav class="topnav">
+    <button data-page="home" class="active">INÍCIO</button>
+    <button data-page="sports">FUTEBOL</button>
+    <button data-page="live">AO VIVO</button>
+    <button data-page="bets">MINHAS APOSTAS</button>
+    <button data-page="wallet">CARTEIRA</button><button data-page="casino">CASSINO</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="userBox">
+    <div class="userCard"><div><small>USUÁRIO</small><b id="userName">—</b></div><div><small>SALDO DEMO</small><b class="bal" id="balanceTop" title="Conta e Segurança">—</b></div></div>
+    <button class="btn ghost" id="profileBtn">PERFIL</button>
+    <button class="btn danger" id="logout">SAIR</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side">
+    <button data-page="home" class="on">⌂ <span>Início</span></button>
+    <button data-page="live">◉ <span>Ao Vivo</span><em>136</em></button>
+    <button data-page="bets">▤ <span>Minhas Apostas</span></button>
+    <button data-page="wallet">R$ <span>Carteira</span></button><button data-page="casino">🎰 <span>Cassino</span></button>
+      <button id="sideProfile">👤 <span>Perfil</span></button>
+    <div class="sideTitle">COMPETIÇÕES</div>
+    <button data-league="Brasileirão Série A">🇧🇷 <span>Brasileirão Série A</span></button>
+    <button data-league="Brasileirão Série B">🇧🇷 <span>Brasileirão Série B</span></button>
+    <button data-league="Libertadores">🏆 <span>Libertadores</span></button>
+    <button data-league="Champions League">⚽ <span>Champions League</span></button>
+    <button data-league="Premier League">🏴 <span>Premier League</span></button>
+    <button data-league="LaLiga">🇪🇸 <span>LaLiga</span></button>
+    <button data-league="Serie A">🇮🇹 <span>Serie A</span></button>
+    <button data-league="Bundesliga">🇩🇪 <span>Bundesliga</span></button>
+  </aside>
+  <main id="main"></main>
+  <aside class="right" id="right"></aside>
+</div>
+
+<nav class="bottomNav">
+  <button data-page="home" class="active"><span class="ico">⌂</span><b>Início</b></button>
+  <button data-page="sports"><span class="ico">⚽</span><b>Futebol</b></button>
+  <button data-page="live"><span class="ico">◉</span><b>Ao Vivo</b><em class="badge">136</em></button>
+  <button data-page="bets"><span class="ico">▤</span><b>Apostas</b></button>
+  <button data-page="wallet"><span class="ico">R$</span><b>Carteira</b></button><button data-page="casino"><span class="ico">🎰</span><b>Cassino</b></button>
+</nav>
+</section>
+
+<div id="mobileCouponDrawer" class="mobileCouponDrawer hidden">
+  <div class="mobileCouponSheet">
+    <div class="mobileCouponGrab"></div>
+    <div class="mobileCouponTop">
+      <b>Cupom de apostas</b>
+      <button id="closeMobileCoupon">×</button>
+    </div>
+    <div id="mobileCouponBody"></div>
+  </div>
+</div>
+<button id="mobileCouponBtn" class="mobileCouponBtn hidden">
+  <span>🧾</span>
+  <b>Cupom</b>
+  <em id="mobileSlipCount">0</em>
+</button>
+
+
+<button id="helpBtn" class="mxHelp hidden">Ajuda</button>
+<div id="helpModal" class="mxModal hidden">
+  <div class="mxModalCard">
+    <button class="mxClose" id="closeHelp">×</button>
+    <h3>Ajuda e Suporte</h3>
+    <select id="supportSubject">
+      <option>Não consigo entrar</option><option>Trocar e-mail</option><option>Problema no cadastro</option><option>CPF já cadastrado</option><option>Outro</option>
+    </select>
+    <textarea id="supportMessage" placeholder="Explique o problema"></textarea>
+    <button class="btn primary" id="sendSupport">Enviar chamado</button>
+    <div id="myTickets"></div>
+  </div>
+</div>
+
+
+<div id="walletModal" class="mxModal hidden">
+  <div class="mxModalCard">
+    <button class="mxClose" data-close-wallet>×</button>
+    <h3>Carteira</h3>
+    <div class="userCard"><div><small>SALDO</small><b class="bal" id="walletBalance">R$ 0,00</b></div></div>
+    <div id="paymentAccountBox">
+        <h4>Conta de pagamento</h4>
+        <input id="payHolderName" placeholder="Nome do titular">
+        <input id="payCpf" inputmode="numeric" placeholder="CPF do titular">
+        <input id="payPixKey" placeholder="Chave PIX">
+        <button class="btn ghost" id="savePaymentAccount">SALVAR CONTA</button>
+        </div>
+        <h4>PIX automático • SANDBOX</h4>
+        <input id="pixAutoAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+        <button class="btn primary" id="createPixCharge">GERAR PIX DE TESTE</button>
+        <textarea id="pixPayload" readonly placeholder="PIX Copia e Cola de teste"></textarea>
+        <small>Modo sandbox: não movimenta dinheiro real.</small>
+        <hr>
+        <h4>Solicitar depósito manual</h4>
+    <input id="depositAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+    <textarea id="depositReceipt" placeholder="Referência/comprovante (opcional)"></textarea>
+    <button class="btn primary" id="requestDeposit">ENVIAR DEPÓSITO</button>
+    <hr>
+    <h4>Solicitar saque</h4>
+    <input id="withdrawAmount" type="number" min="0.01" step="0.01" placeholder="Valor em R$">
+    <input id="withdrawPix" placeholder="Chave PIX">
+    <button class="btn ghost" id="requestWithdraw">SOLICITAR SAQUE</button>
+    <hr>
+    <h4>Extrato</h4>
+    <div id="walletHistory" style="display:grid;gap:8px"></div>
+  </div>
+</div>
+
+
+<div id="marketModal" class="marketModal hidden">
+  <div class="marketCard">
+    <div class="marketTop"><div id="marketTitle"><b>Mercados</b></div><button id="marketClose" class="marketClose">FECHAR</button></div>
+    <div id="marketBody"></div>
+  </div>
+</div>
+
+<div id="profileModal" class="mxModal hidden">
+  <div class="mxModalCard">
+    <button class="mxClose" data-close-profile>×</button>
+    <h3>Meu Perfil</h3>
+    <div class="profileTop">
+      <div id="profileAvatar" class="profileAvatar">👤</div>
+      <div>
+        <b id="profileName">—</b>
+        <small id="profileStatus">Conta ativa</small>
+      </div>
+    </div>
+    <input id="avatarInput" type="file" accept="image/*">
+    <button class="btn ghost" id="removeAvatar">Remover foto</button>
+
+    <div class="profileInfo">
+      <label>Nome de usuário</label><input id="profileUsername" disabled>
+      <label>E-mail</label><input id="profileEmail" disabled>
+      <label>CPF</label><input id="profileCpf" disabled>
+      <label>Cadastro</label><input id="profileCreated" disabled>
+    </div>
+
+    <hr>
+    <h4>Alterar e-mail</h4>
+    <input id="profileEmailPwd" type="password" placeholder="Senha atual">
+    <input id="profileNewEmail" type="email" placeholder="Novo e-mail">
+    <button class="btn ghost" id="profileChangeEmail">Salvar novo e-mail</button>
+
+    <hr>
+    <h4>Alterar senha</h4>
+    <input id="profileCurrentPwd" type="password" placeholder="Senha atual">
+    <input id="profileNewPwd" type="password" placeholder="Nova senha">
+    <button class="btn primary" id="profileChangePwd">Alterar senha</button>
+  </div>
+</div>
+
+<div id="securityModal" class="mxModal hidden">
+  <div class="mxModalCard">
+    <button class="mxClose" id="closeSecurity">×</button>
+    <h3>Conta e Segurança</h3>
+    <input id="currentPwd" type="password" placeholder="Senha atual">
+    <input id="newPwd" type="password" placeholder="Nova senha (mín. 8 caracteres)">
+    <button class="btn primary" id="changePwd">Alterar senha</button>
+    <hr>
+    <input id="emailPwd" type="password" placeholder="Senha atual">
+    <input id="newEmail" type="email" placeholder="Novo e-mail">
+    <button class="btn ghost" id="changeEmail">Alterar e-mail</button>
+  </div>
+</div>
+
+<script>
+let token=localStorage.getItem('mxv51_token')||'',mode='register',page='home',league='Todos',market='Principais',me=null,events=[],liveEvents=[],slip=[];
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const money=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+async function api(path,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json'};if(token)opt.headers.Authorization='Bearer '+token;let r=await fetch(path,opt);let j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Erro');return j}
+function setMode(m){mode=m;$('#name').classList.toggle('hidden',m==='login');$('#cpf').classList.toggle('hidden',m==='login');$('#submit').textContent=m==='login'?'Entrar':'Criar conta';$('#regTab').className='btn '+(m==='register'?'primary':'ghost');$('#loginTab').className='btn '+(m==='login'?'primary':'ghost')}
+async function submitAuth(){try{$('#msg').textContent='';let body={email:$('#email').value,password:$('#password').value};if(mode==='register'){body.name=$('#name').value;body.cpf=$('#cpf').value;}let j=await api('/api/auth/'+(mode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});token=j.token;localStorage.setItem('mxv51_token',token);await boot()}catch(e){$('#msg').textContent=e.message}}
+
+$('#cpf').addEventListener('input',e=>{
+  let v=e.target.value.replace(/\D/g,'').slice(0,11);
+  if(v.length>9) v=v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/,'$1.$2.$3-$4');
+  else if(v.length>6) v=v.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3');
+  else if(v.length>3) v=v.replace(/(\d{3})(\d{1,3})/,'$1.$2');
+  e.target.value=v;
+});
+
+async function boot(){if(!token){showAuth();return}try{me=await api('/api/me');events=(await api('/api/events')).events;liveEvents=(await api('/api/live')).events;showApp();render()}catch(e){token='';localStorage.removeItem('mxv51_token');showAuth()}}
+function showAuth(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn');if(a)a.classList.remove('hidden');if(b)b.classList.add('hidden');if(hp)hp.classList.add('hidden')}
+function showApp(){const a=$('#authScreen'),b=$('#appScreen'),hp=$('#helpBtn'),un=$('#userName'),bal=$('#balanceTop');if(a)a.classList.add('hidden');if(b)b.classList.remove('hidden');if(hp)hp.classList.remove('hidden');if(un)un.textContent=me.name;if(bal)bal.textContent=money(me.demo_balance_cents)}
+function nav(p){page=p;$$('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===p);b.classList.toggle('on',b.dataset.page===p)});render();scrollTo(0,0)}
+function selected(id,pick){return slip.some(x=>x.event_id===id&&x.pick===pick)}
+function addSelection(e,pick){addMarketSelection(e,'Resultado Final',pick,+e.odds[pick],pick)}
+function addMarketSelection(e,marketName,pick,odd,label){
+ let key=e.id+'|'+marketName, i=slip.findIndex(x=>x.key===key), o={key,event_id:e.id,market:marketName,pick,odd:+odd,home:e.home,away:e.away,league:e.league,label:label||pick};
+ if(i>=0&&slip[i].pick===pick)slip.splice(i,1);else{if(i>=0)slip.splice(i,1);slip.push(o)}
+ render();
+}
+function cards(){return `<div class=heroRow><div class=hero><small>BEM-VINDO, ${me.name}</small><h2>SEU SALDO <span>${money(me.demo_balance_cents)}</span></h2><small>Conta validada pelo backend.</small></div><div class=hero><small>FUTEBOL</small><h2>GRANDES <span>LIGAS</span></h2><small>Brasil e competições internacionais.</small></div><div class=hero><small>AO VIVO</small><h2><span>${liveEvents.length}</span> EVENTOS</h2><small>Eventos servidos pela API.</small></div></div>`}
+
+function groupByName(e,name){return (e.markets||[]).find(g=>g.group===name)?.items||[]}
+function activeMarketItems(e){
+  if(market==='Principais'){
+    return ['1','X','2'].map(p=>({market:'Resultado Final',pick:p,label:p==='1'?'Casa':p==='X'?'Empate':'Fora',odd:+e.odds[p]}));
+  }
+  if(market==='Dupla Chance') return groupByName(e,'Resultado').filter(x=>x.market==='Dupla Chance');
+  if(market==='Gols') return groupByName(e,'Gols');
+  if(market==='1º Tempo') return groupByName(e,'1º Tempo');
+  if(market==='Handicap') return groupByName(e,'Handicap');
+  if(market==='Escanteios') return groupByName(e,'Escanteios');
+  if(market==='Cartões') return groupByName(e,'Cartões');
+  if(market==='Faltas') return groupByName(e,'Faltas');
+  if(market==='Pênalti') return groupByName(e,'Pênalti');
+  return [];
+}
+function marketEventRow(e,rowClass='event'){
+  let items=activeMarketItems(e).slice(0,6);
+  return `<div class="${rowClass} marketEventRow">
+    <div class=info><small>${e.time||''}${rowClass==='liveRow'?' • AO VIVO':''}</small>
+      <b class=teamline>${crest(e.home)}${e.home}</b>
+      <b class=teamline>${crest(e.away)}${e.away}${e.score?' · '+e.score:''}</b>
+      <small style="color:#68dca9">${market}</small>
+    </div>
+    <div class=inlineMarkets>${items.map(x=>`<button class="marketInline ${selected(e.id,x.pick,x.market)?'sel':''}"
+      data-inline-event="${e.id}" data-inline-market="${x.market}" data-inline-pick="${x.pick}" data-inline-odd="${x.odd}" data-inline-label="${x.label}">
+      <span>${x.label}</span><strong>${Number(x.odd).toFixed(2)}</strong></button>`).join('')}
+    </div>
+    <button class=moreBtn data-markets="${e.id}">+ MERCADOS</button>
+  </div>`;
+}
+
+function crest(name){let p=name.split(/\s+/).filter(Boolean),t=(p[0]?.[0]||'')+(p[1]?.[0]||p[0]?.[1]||'');return `<span class=crest>${t.toUpperCase()}</span>`}
+function book(list){
+ let groups={};list.forEach(e=>(groups[e.league]??=[]).push(e));
+ return `<div class=panel><div class=head>FUTEBOL <span>${list.length} eventos • ${market}</span></div>
+ ${Object.entries(groups).map(([l,a])=>`<div class=group>★ ${l}</div>${a.map(e=>marketEventRow(e,'event')).join('')}`).join('')}</div>`
+}
+function home(){return cards()+`<input class=search id=search placeholder="Buscar por jogos, ligas ou equipes..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga','Ligue 1','Primeira Liga','Liga Argentina','MLS'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(events.slice(0,7))}`}
+function sports(){let list=events.filter(e=>league==='Todos'||e.league===league);return cards()+`<input class=search id=search placeholder="Buscar futebol..."><div class=leagues>${['Todos','Brasileirão Série A','Brasileirão Série B','Libertadores','Champions League','Premier League','LaLiga','Serie A','Bundesliga'].map(l=>`<button class="${league===l?'on':''}" data-league="${l}">${l}</button>`).join('')}</div><div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>${book(list)}`}
+function livePage(){
+ let groups={};liveEvents.slice(0,60).forEach(e=>(groups[e.league]??=[]).push(e));
+ return cards()+`<div class=markets>${['Principais','Gols','1º Tempo','Dupla Chance','Handicap','Escanteios','Cartões','Faltas','Pênalti'].map(m=>`<button class="${market===m?'on':''}" data-market="${m}">${m}</button>`).join('')}</div>
+ <div class=panel><div class=liveTitle>◉ AO VIVO • ${liveEvents.length} EVENTOS • ${market}</div>
+ ${Object.entries(groups).map(([l,a])=>`<div class=group>${l}</div>${a.map(e=>marketEventRow(e,'liveRow')).join('')}`).join('')}</div>`
+}
+async function betsPage(){let j=await api('/api/bets');$('#main').innerHTML=cards()+`<div class=panel><div class=head>MINHAS APOSTAS <span>${j.bets.length}</span></div><div style="padding:12px">${j.bets.length?j.bets.map(b=>`<div class=betcard><b>#${b.id} • ${money(b.stake_cents)}</b><p>Odd total ${b.total_odd.toFixed(2)}</p><small>${b.status} • ${new Date(b.created_at).toLocaleString('pt-BR')}</small></div>`).join(''):'<div class=empty>Nenhuma aposta demo registrada.</div>'}</div></div>`;bindDynamic()}
+function wallet(){return cards()+`<div class=wallet><small>SALDO DEMO DISPONÍVEL</small><strong>${money(me.demo_balance_cents)}</strong><button class="btn primary" id=addBalance>ADICIONAR R$100 DEMO</button></div><div class=panel><div class=head>CARTEIRA</div><div style="padding:18px;color:#97a4a9">Esta carteira é demonstrativa. Nenhum PIX real é processado nesta versão.</div></div>`}
+function coupon(){let total=slip.reduce((a,x)=>a*x.odd,1);return `<div class=coupon><div class=couponHead>CUPOM DE APOSTAS</div><div class=couponBody>${slip.length?slip.map((x,i)=>`<div class=slip><div class=slipTop><b>${x.home} x ${x.away}</b><button class=remove data-remove="${i}">×</button></div><small>${x.market}: ${x.label||x.pick} • ${x.league}</small><div style="text-align:right;color:var(--green);font-weight:950">${x.odd.toFixed(2)}</div></div>`).join(''):'<div class=empty>Seu cupom está vazio.<br>Selecione uma odd.</div>'}${slip.length?`<div class=stake><input id=stake type=number min=1 value=10><button class="btn ghost" id=clear>Limpar</button></div><div class=ret><span>Retorno potencial</span><strong id=ret>${money(Math.round(1000*total))}</strong></div><button class="btn primary" style="width:100%" id=place>FAZER APOSTA DEMO</button>`:''}</div></div>`}
+
+function syncMobileCoupon(){
+  const btn=$('#mobileCouponBtn'), count=$('#mobileSlipCount'), body=$('#mobileCouponBody');
+  if(!me){ if(btn)btn.classList.add('hidden'); return; }
+  if(btn) btn.classList.remove('hidden');
+  if(count) count.textContent=slip.length;
+  if(body) body.innerHTML=coupon();
+  bindMobileCouponControls();
+}
+function bindMobileCouponControls(){
+  const body=$('#mobileCouponBody');
+  if(!body)return;
+  body.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{slip.splice(+b.dataset.remove,1);render();syncMobileCoupon()});
+  const clear=body.querySelector('#clear');
+  if(clear)clear.onclick=()=>{slip=[];render();syncMobileCoupon()};
+  const stake=body.querySelector('#stake');
+  if(stake)stake.oninput=()=>{
+    let t=slip.reduce((a,x)=>a*x.odd,1);
+    const ret=body.querySelector('#ret');
+    if(ret)ret.textContent=money(Math.round((+stake.value||0)*100*t));
+  };
+  const place=body.querySelector('#place');
+  if(place)place.onclick=async()=>{
+    let stakeEl=body.querySelector('#stake');
+    let stake=Math.round((+(stakeEl?.value||0))*100);
+    try{
+      await api('/api/bets',{method:'POST',body:JSON.stringify({stake_cents:stake,selections:slip.map(({event_id,market,pick,odd})=>({event_id,market,pick,odd}))})});
+      slip=[];me=await api('/api/me');showApp();page='bets';$('#mobileCouponDrawer').classList.add('hidden');render();
+    }catch(e){alert(e.message)}
+  };
+}
+
+
+async function casinoPage(){
+  let j=await api('/api/casino/catalog');
+  return cards()+`<div class=panel><div class=head>CASSINO <span>${j.connected?'CONECTADO':'AGUARDANDO PROVEDOR'}</span></div>
+  <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px">
+    ${j.categories.map(c=>`<div class=wallet style="min-height:125px"><div style="font-size:34px">${c.icon}</div><b>${c.name}</b><small style="display:block;color:#8fa0a4;margin-top:6px">API B2B preparada</small></div>`).join('')}
+  </div><div style="padding:0 14px 15px;color:#97a4a9">${j.message}</div></div>`;
+}
+
+
+function v63Dashboard(){
+ const featuredLive=liveEvents.slice(0,4), highlights=['Brasileirão Série A','Libertadores','Champions League','Premier League','LaLiga'];
+ return `<div class="v63dash">
+ <div class="v63stats">
+  <div class="v63card"><small>SEU SALDO</small><strong>${money(me.demo_balance_cents)}</strong><small>Conta demo</small></div>
+  <div class="v63card" data-page="live" style="cursor:pointer"><small>AO VIVO AGORA</small><strong>${liveEvents.length}</strong><small>Eventos em andamento</small></div>
+  <div class="v63card" data-page="sports" style="cursor:pointer"><small>GRANDES LIGAS</small><strong>12</strong><small>Campeonatos disponíveis</small></div>
+  <div class="v63card" data-page="bets" style="cursor:pointer"><small>MINHAS APOSTAS</small><strong>VER</strong><small>Acompanhe seus bilhetes</small></div>
+ </div>
+ <div class="v63section"><div class="v63title">🔴 AO VIVO AGORA <button class=moreBtn data-page="live">VER TODOS (${liveEvents.length})</button></div><div class="v63live">
+ ${featuredLive.map(e=>`<div class="v63match" data-dash-live="${e.id}"><small>${e.league} · ${e.time} AO VIVO</small><b class=teamline>${crest(e.home)}${e.home}</b><b class=teamline>${crest(e.away)}${e.away} · ${e.score}</b><div class="v63odds">${['1','X','2'].map(p=>`<span>${Number(e.odds[p]).toFixed(2)}</span>`).join('')}</div><button class=moreBtn data-markets="${e.id}">+ MERCADOS</button></div>`).join('')}
+ </div></div>
+ <div class="v63section"><div class="v63title">⭐ DESTAQUES DO DIA</div><div class="v63features">
+ ${highlights.map(x=>`<div class="v63feature" data-highlight-league="${x}">🏆<strong>${x}</strong><small>VER JOGOS E MERCADOS</small></div>`).join('')}
+ </div></div>
+ <div class="v63section"><div class="v63title">🌐 JOGOS REAIS SPORTMONKS</div><div id="realFeedBox"></div></div><div class="v63section"><div class="v63title">📋 APOSTAS RECENTES <button class=moreBtn data-page="bets">VER TODAS</button></div>
+ <table class="v63recent"><tr><th>Evento</th><th>Mercado</th><th>Odd</th><th>Status</th></tr><tr><td>Palmeiras x Flamengo</td><td>Resultado Final</td><td>2.10</td><td>DEMO</td></tr><tr><td>Atlético-MG x Corinthians</td><td>Dupla Chance</td><td>1.50</td><td>DEMO</td></tr></table></div>
+ </div>`;
+}
+
+
+async function loadRealFixtures(){
+  const box=document.querySelector('#realFeedBox');
+  if(!box)return;
+  box.innerHTML='<div class="realFeedBar"><strong>SPORTMONKS</strong><span>Carregando jogos reais...</span></div>';
+  try{
+    const j=await api('/api/real/fixtures');
+    box.innerHTML=`<div class="realFeedBar"><strong>SPORTMONKS • DADOS REAIS</strong><span>${j.date} • ${j.count} jogos</span></div>
+      <div class="realGames">${(j.fixtures||[]).map(f=>`
+        <div class="realGame">
+          <div>
+            <div class="realMeta">${f.league?.name||'Liga'} • ${f.starting_at||''}</div>
+            <div class="realTeam">${f.home?.image_path?`<img src="${f.home.image_path}">`:''}${f.home?.name||'Mandante'}</div>
+            <div class="realTeam">${f.away?.image_path?`<img src="${f.away.image_path}">`:''}${f.away?.name||'Visitante'}</div>
+            <div class="realMeta">${f.has_odds?'✓ Possui odds':'Sem odds no feed'}</div>
+          </div>
+          ${f.has_odds?`<button class="realOddsBtn" data-real-odds="${f.id}">VER ODDS</button>`:''}
+        </div>`).join('')}</div>`;
+    document.querySelectorAll('[data-real-odds]').forEach(b=>b.onclick=()=>openRealOdds(b.dataset.realOdds));
+  }catch(e){
+    box.innerHTML=`<div class="realError"><b>Feed real indisponível.</b><br>${e.message}</div>`;
+  }
+}
+
+async function openRealOdds(id){
+  try{
+    const j=await api('/api/real/fixtures/'+id+'/odds');
+    const modal=document.querySelector('#marketModal');
+    const body=document.querySelector('#marketBody');
+    const title=document.querySelector('#marketTitle');
+    if(!modal||!body||!title)return;
+    title.innerHTML=`<b>ODDS REAIS SPORTMONKS</b><small style="display:block">${j.count} cotações</small>`;
+    const grouped={};
+    (j.odds||[]).forEach(o=>{
+      const name=o.market?.name||o.market_description||('Mercado '+o.market_id);
+      (grouped[name]??=[]).push(o);
+    });
+    body.innerHTML=Object.entries(grouped).map(([name,items])=>`
+      <div class=marketGroup><h4>${name}</h4><div class=marketGrid>
+      ${items.slice(0,18).map(o=>`<button class=marketOdd><span>${o.label||'Seleção'}</span><strong>${Number(o.value||0).toFixed(2)}</strong><small style="display:block">${o.bookmaker?.name||''}</small></button>`).join('')}
+      </div></div>`).join('')||'<div class=realError>Nenhuma odd retornada para esta partida.</div>';
+    modal.classList.remove('hidden');
+  }catch(e){
+    alert('Odds reais: '+e.message);
+  }
+}
+
+async function render(){if(page==='home'&&me){$('#main').innerHTML=v63Dashboard();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();loadRealFixtures();return;}if(page==='casino'){if(!me)return;$('#main').innerHTML=await casinoPage();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon();return;}if(!me)return;if(page==='bets'){await betsPage();$('#right').innerHTML=coupon();syncMobileCoupon();return}$('#main').innerHTML=page==='sports'?sports():page==='live'?livePage():page==='wallet'?wallet():home();$('#right').innerHTML=coupon();bindDynamic();syncMobileCoupon()}
+
+async function openMarkets(eventId){
+  try{
+    let j=await api('/api/events/'+eventId+'/markets'),e=j.event;
+    $('#marketTitle').innerHTML=`<b>${crest(e.home)} ${e.home} x ${crest(e.away)} ${e.away}</b><small style="display:block;color:#9aa7a2">${e.league} • ${e.time||'Ao vivo'}</small>`;
+    $('#marketBody').innerHTML=j.groups.map(g=>`<div class=marketGroup><h4>${g.group}</h4><div class=marketGrid>${g.items.map(x=>`<button class="marketOdd ${slip.some(s=>s.event_id===e.id&&s.market===x.market&&s.pick===x.pick)?'sel':''}" data-market-event="${e.id}" data-market-name="${x.market}" data-market-pick="${x.pick}" data-market-odd="${x.odd}" data-market-label="${x.label}">${x.label}<strong>${Number(x.odd).toFixed(2)}</strong></button>`).join('')}</div></div>`).join('');
+    $('#marketModal').classList.remove('hidden');
+    $$('[data-market-event]').forEach(b=>b.onclick=()=>{
+      addMarketSelection(e,b.dataset.marketName,b.dataset.marketPick,+b.dataset.marketOdd,b.dataset.marketLabel);
+      openMarkets(e.id);
+    });
+  }catch(e){alert(e.message)}
+}
+if($('#marketClose'))$('#marketClose').onclick=()=>$('#marketModal').classList.add('hidden');
+if($('#marketModal'))$('#marketModal').onclick=e=>{if(e.target.id==='marketModal')$('#marketModal').classList.add('hidden')};
+
+function bindDynamic(){
+ $$('[data-league]').forEach(b=>b.onclick=()=>{league=b.dataset.league;page='sports';render()});
+ $$('[data-market]').forEach(b=>b.onclick=()=>{market=b.dataset.market;render()});
+ $$('[data-event]').forEach(b=>b.onclick=()=>{let e=events.find(x=>x.id===b.dataset.event);addSelection(e,b.dataset.pick)});
+ $$('[data-liveevent]').forEach(b=>b.onclick=()=>{let e=liveEvents.find(x=>x.id===b.dataset.liveevent);addSelection(e,b.dataset.pick)});
+ $$('[data-remove]').forEach(b=>b.onclick=()=>{slip.splice(+b.dataset.remove,1);render()});
+ $$('[data-markets]').forEach(b=>b.onclick=()=>openMarkets(b.dataset.markets));
+ $$('[data-inline-event]').forEach(b=>b.onclick=()=>{
+   let e=events.find(x=>x.id===b.dataset.inlineEvent)||liveEvents.find(x=>x.id===b.dataset.inlineEvent);
+   if(e)addMarketSelection(e,b.dataset.inlineMarket,b.dataset.inlinePick,+b.dataset.inlineOdd,b.dataset.inlineLabel);
+ });
+ $$('[data-dash-live]').forEach(b=>b.onclick=()=>openMarkets(b.dataset.dashLive));
+ $$('[data-highlight-league]').forEach(b=>b.onclick=()=>{league=b.dataset.highlightLeague;page='sports';render()});
+ if($('#clear'))$('#clear').onclick=()=>{slip=[];render()};
+ if($('#stake'))$('#stake').oninput=()=>{let t=slip.reduce((a,x)=>a*x.odd,1);$('#ret').textContent=money(Math.round((+$('#stake').value||0)*100*t))};
+ if($('#place'))$('#place').onclick=placeBet;
+ if($('#addBalance'))$('#addBalance').onclick=async()=>{let j=await api('/api/demo/add-balance',{method:'POST'});me.demo_balance_cents=j.demo_balance_cents;showApp();render()};
+ if($('#search'))$('#search').oninput=e=>{let q=e.target.value.toLowerCase();$$('.event').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'grid':'none')};
+}
+async function placeBet(){try{let stake=Math.round((+$('#stake').value||0)*100);await api('/api/bets',{method:'POST',body:JSON.stringify({stake_cents:stake,selections:slip.map(({event_id,market,pick,odd})=>({event_id,market,pick,odd}))})});slip=[];me=await api('/api/me');showApp();page='bets';render()}catch(e){alert(e.message)}}
+$('#regTab').onclick=()=>setMode('register');$('#loginTab').onclick=()=>setMode('login');$('#submit').onclick=submitAuth;$('#logout').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch{}token='';localStorage.removeItem('mxv51_token');me=null;showAuth()};$$('[data-page]').forEach(b=>b.onclick=()=>nav(b.dataset.page));
+$('#mobileCouponBtn').onclick=()=>{syncMobileCoupon();$('#mobileCouponDrawer').classList.remove('hidden')};
+$('#closeMobileCoupon').onclick=()=>$('#mobileCouponDrawer').classList.add('hidden');
+$('#mobileCouponDrawer').onclick=e=>{if(e.target===$('#mobileCouponDrawer'))$('#mobileCouponDrawer').classList.add('hidden')};
+
+
+async function forgotPassword(){
+  const email=$('#email').value.trim();
+  if(!email){$('#msg').textContent='Digite seu e-mail primeiro.';return;}
+  try{let j=await api('/api/auth/forgot-password',{method:'POST',body:JSON.stringify({email})});$('#msg').textContent=j.message+(j.email_configured?'':' E-mail automático ainda precisa ser configurado no servidor.');}catch(e){$('#msg').textContent=e.message}
+}
+async function loadTickets(){
+  try{let j=await api('/api/support/tickets');$('#myTickets').innerHTML=j.tickets.length?'<h4>Meus chamados</h4>'+j.tickets.map(t=>`<div style="padding:9px;border:1px solid #2b3a34;border-radius:7px;margin:7px 0"><b>#${t.id} • ${t.subject}</b><br><small>${t.status}</small>${t.admin_reply?`<p><b>Resposta:</b> ${t.admin_reply}</p>`:''}</div>`).join(''):''}catch{}
+}
+$('#forgotBtn').onclick=forgotPassword;
+$('#helpBtn').onclick=()=>{$('#helpModal').classList.remove('hidden');loadTickets()};
+$('#closeHelp').onclick=()=>$('#helpModal').classList.add('hidden');
+$('#closeSecurity').onclick=()=>$('#securityModal').classList.add('hidden');
+$('#balanceTop').onclick=()=>$('#securityModal').classList.remove('hidden');
+$('#sendSupport').onclick=async()=>{try{await api('/api/support/tickets',{method:'POST',body:JSON.stringify({subject:$('#supportSubject').value,message:$('#supportMessage').value})});$('#supportMessage').value='';loadTickets()}catch(e){alert(e.message)}};
+$('#changePwd').onclick=async()=>{try{await api('/api/account/change-password',{method:'POST',body:JSON.stringify({current_password:$('#currentPwd').value,new_password:$('#newPwd').value})});alert('Senha alterada.')}catch(e){alert(e.message)}};
+$('#changeEmail').onclick=async()=>{try{await api('/api/account/change-email',{method:'POST',body:JSON.stringify({password:$('#emailPwd').value,new_email:$('#newEmail').value})});alert('E-mail alterado.')}catch(e){alert(e.message)}};
+const resetToken=new URLSearchParams(location.search).get('reset_token');
+if(resetToken){
+  const np=prompt('Digite sua nova senha (mínimo 8 caracteres):');
+  if(np) api('/api/auth/reset-password',{method:'POST',body:JSON.stringify({token:resetToken,new_password:np})}).then(()=>{alert('Senha redefinida.');history.replaceState({},'',location.pathname)}).catch(e=>alert(e.message));
+}
+
+
+async function openProfile(){
+  try{
+    let p=await api('/api/account/profile');
+    $('#profileName').textContent=p.name;
+    $('#profileUsername').value=p.name;
+    $('#profileEmail').value=p.email;
+    $('#profileCpf').value=p.cpf_masked||'—';
+    $('#profileCreated').value=p.created_at?new Date(p.created_at).toLocaleString('pt-BR'):'—';
+    $('#profileStatus').textContent=p.is_blocked?'Conta bloqueada':'Conta ativa';
+    if(p.avatar_data){
+      $('#profileAvatar').innerHTML=`<img src="${p.avatar_data}" alt="Foto de perfil">`;
+    }else{
+      $('#profileAvatar').textContent='👤';
+    }
+    $('#profileModal').classList.remove('hidden');
+  }catch(e){alert(e.message)}
+}
+if($('#profileBtn')) $('#profileBtn').onclick=openProfile;
+if($('#sideProfile')) $('#sideProfile').onclick=openProfile;
+$('[data-close-profile]').onclick=()=>$('#profileModal').classList.add('hidden');
+
+$('#avatarInput').onchange=()=>{
+  const file=$('#avatarInput').files?.[0];
+  if(!file)return;
+  if(file.size>350000){alert('Escolha uma imagem menor que 350 KB.');$('#avatarInput').value='';return;}
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      await api('/api/account/avatar',{method:'PUT',body:JSON.stringify({avatar_data:reader.result})});
+      openProfile();
+    }catch(e){alert(e.message)}
+  };
+  reader.readAsDataURL(file);
+};
+
+$('#removeAvatar').onclick=async()=>{
+  try{await api('/api/account/avatar',{method:'DELETE'});openProfile()}catch(e){alert(e.message)}
+};
+
+$('#profileChangeEmail').onclick=async()=>{
+  try{
+    await api('/api/account/change-email',{method:'POST',body:JSON.stringify({
+      password:$('#profileEmailPwd').value,
+      new_email:$('#profileNewEmail').value
+    })});
+    alert('E-mail alterado.');
+    me=await api('/api/me');showApp();openProfile();
+  }catch(e){alert(e.message)}
+};
+
+$('#profileChangePwd').onclick=async()=>{
+  try{
+    await api('/api/account/change-password',{method:'POST',body:JSON.stringify({
+      current_password:$('#profileCurrentPwd').value,
+      new_password:$('#profileNewPwd').value
+    })});
+    alert('Senha alterada.');
+    $('#profileCurrentPwd').value='';$('#profileNewPwd').value='';
+  }catch(e){alert(e.message)}
+};
+
+
+function brl(c){return (c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+async function openWallet(){
+  loadPaymentAccount();
+  try{
+    let w=await api('/api/wallet');
+    $('#walletBalance').textContent=brl(w.balance_cents);
+    $('#walletHistory').innerHTML=w.transactions.length?w.transactions.map(t=>{
+      let title=t.kind==='deposit'?'Depósito':'Saque';
+      let st=t.status==='pending'?'Pendente':t.status==='approved'?'Aprovado':'Rejeitado';
+      return `<div class="userCard"><div><b>${title} • ${brl(t.amount_cents)}</b><small>${new Date(t.created_at).toLocaleString('pt-BR')}</small></div><div><b>${st}</b><small>${t.admin_note||''}</small></div></div>`
+    }).join(''):'<small>Nenhuma movimentação ainda.</small>';
+    $('#walletModal').classList.remove('hidden');
+  }catch(e){alert(e.message)}
+}
+if($('[data-close-wallet]')) $('[data-close-wallet]').onclick=()=>$('#walletModal').classList.add('hidden');
+if($('#requestDeposit')) $('#requestDeposit').onclick=async()=>{
+  try{
+    let j=await api('/api/wallet/deposit',{method:'POST',body:JSON.stringify({amount:Number($('#depositAmount').value),receipt_note:$('#depositReceipt').value})});
+    alert(j.message); openWallet();
+  }catch(e){alert(e.message)}
+};
+if($('#requestWithdraw')) $('#requestWithdraw').onclick=async()=>{
+  try{
+    let j=await api('/api/wallet/withdraw',{method:'POST',body:JSON.stringify({amount:Number($('#withdrawAmount').value),pix_key:$('#withdrawPix').value})});
+    alert(j.message); openWallet();
+  }catch(e){alert(e.message)}
+};
+document.querySelectorAll('[data-page="wallet"]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();openWallet()}));
+
+
+async function loadPaymentAccount(){
+  try{
+    let a=await api('/api/payments/account');
+    if(a.configured){
+      $('#payHolderName').value=a.holder_name||'';
+      $('#payPixKey').value=a.pix_key||'';
+    }
+  }catch{}
+}
+if($('#savePaymentAccount')) $('#savePaymentAccount').onclick=async()=>{
+  try{
+    let j=await api('/api/payments/account',{method:'PUT',body:JSON.stringify({
+      holder_name:$('#payHolderName').value,
+      cpf:$('#payCpf').value,
+      pix_key:$('#payPixKey').value
+    })});
+    alert('Conta de pagamento cadastrada.');
+  }catch(e){alert(e.message)}
+};
+if($('#createPixCharge')) $('#createPixCharge').onclick=async()=>{
+  try{
+    let j=await api('/api/payments/pix/charge',{method:'POST',body:JSON.stringify({amount:Number($('#pixAutoAmount').value)})});
+    $('#pixPayload').value=j.pix_copy_paste;
+    alert('PIX de teste gerado. Ele não movimenta dinheiro real.');
+  }catch(e){alert(e.message)}
+};
+
+setMode('register');boot();
+
+let deferredPwaPrompt = null;
+
+function isStandalonePwa(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function showPwaChoice(){
+  const choice=document.getElementById('pwaChoice');
+  if(choice && !isStandalonePwa() && sessionStorage.getItem('mx_web_choice')!=='1'){
+    choice.classList.remove('hidden');
+  }
+}
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredPwaPrompt=e;
+  const b=document.getElementById('installPwa');
+  if(b){ b.disabled=false; b.textContent='⬇ INSTALAR APP'; }
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredPwaPrompt=null;
+  const choice=document.getElementById('pwaChoice');
+  if(choice)choice.classList.add('hidden');
+});
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const web=document.getElementById('continueWeb');
+  const install=document.getElementById('installPwa');
+  const help=document.getElementById('installHelp');
+
+  if(web) web.onclick=()=>{
+    sessionStorage.setItem('mx_web_choice','1');
+    document.getElementById('pwaChoice').classList.add('hidden');
+  };
+
+  if(install) install.onclick=async()=>{
+    if(deferredPwaPrompt){
+      deferredPwaPrompt.prompt();
+      const result=await deferredPwaPrompt.userChoice;
+      if(result.outcome==='accepted'){
+        document.getElementById('pwaChoice').classList.add('hidden');
+      }
+      deferredPwaPrompt=null;
+    }else{
+      if(help) help.textContent='No Chrome/Android, abra o menu ⋮ e toque em “Instalar app” ou “Adicionar à tela inicial”.';
+    }
+  };
+  setTimeout(showPwaChoice, 150);
+});
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{}));
+}
+
+</script>
+</body>
+</html>

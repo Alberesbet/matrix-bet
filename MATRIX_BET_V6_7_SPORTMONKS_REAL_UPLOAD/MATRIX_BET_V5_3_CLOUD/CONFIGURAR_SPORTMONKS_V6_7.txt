@@ -1,0 +1,16 @@
+MATRIX BET V6.7 - SPORTMONKS REAL
+
+No Render:
+Environment -> Add Environment Variable
+
+Key:
+SPORTMONKS_TOKEN
+
+Value:
+seu token NOVO da Sportmonks
+
+Depois: Save / Deploy.
+
+A tela inicial passa a consultar jogos reais da Sportmonks.
+Jogos com has_odds=true exibem o botão VER ODDS.
+O endpoint de odds ao vivo pode continuar bloqueado se o plano da Sportmonks não liberar in-play.
