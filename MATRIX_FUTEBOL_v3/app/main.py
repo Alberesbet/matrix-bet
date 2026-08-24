@@ -1,6 +1,5 @@
 import os, time, threading, statistics
 from datetime import datetime, timedelta
-from typing import Dict, Any
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -19,18 +18,22 @@ CONFIG = {
     "odd_min": float(os.getenv("MATRIX_ODD_MIN", "1.35")),
     "odd_max": float(os.getenv("MATRIX_ODD_MAX", "4.00")),
     "prob_min": float(os.getenv("MATRIX_PROB_MIN", "0.45")),
-    "intervalo": int(os.getenv("MATRIX_INTERVALO", "300")),
+    "intervalo": int(os.getenv("MATRIX_INTERVALO", "180")),
+    "dias_busca": int(os.getenv("MATRIX_DIAS_BUSCA", "7")),
     "modo": os.getenv("MATRIX_MODO", "SIMULACAO"),
 }
 
-STATE: Dict[str, Any] = {
+STATE = {
     "status": "iniciando",
     "ultima_atualizacao": None,
     "jogos_encontrados": 0,
     "jogos_com_odds": 0,
     "jogos_analisados": 0,
+    "libertadores": [],
+    "internacionais": [],
+    "ao_vivo": [],
     "sinais": [],
-    "diagnostico": [],
+    "todos": [],
     "erro": None,
 }
 
@@ -43,22 +46,17 @@ def agora():
     return datetime.now(TZ)
 
 
-def token() -> str:
+def get_token():
     t = os.getenv("SPORTMONKS_TOKEN", "").strip()
     if not t:
         raise RuntimeError("SPORTMONKS_TOKEN não configurado no Render.")
     return t
 
 
-def api_get(path: str, params=None):
+def api_get(path, params=None):
     p = dict(params or {})
-    p["api_token"] = token()
-    r = requests.get(
-        BASE + path,
-        params=p,
-        timeout=30,
-        headers={"Accept": "application/json"}
-    )
+    p["api_token"] = get_token()
+    r = requests.get(BASE + path, params=p, timeout=30, headers={"Accept": "application/json"})
     try:
         payload = r.json()
     except Exception:
@@ -69,45 +67,28 @@ def api_get(path: str, params=None):
     return payload
 
 
-def jogos_24h():
-    # Busca hoje e amanhã no horário do Brasil para não perder jogos na virada do dia.
-    inicio = agora().date()
-    fim = (agora() + timedelta(days=1)).date()
-    data = api_get(
-        f"/fixtures/between/{inicio.isoformat()}/{fim.isoformat()}",
-        {"include": "participants;league;state"}
-    ).get("data", [])
-
-    # Mantém somente os próximos ~24h quando houver horário parseável.
-    limite = agora() + timedelta(hours=24)
-    saida = []
-    for f in data:
-        raw = f.get("starting_at")
-        if not raw:
-            saida.append(f)
-            continue
-        try:
-            # SportMonks costuma retornar "YYYY-MM-DD HH:MM:SS"
-            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-            local = dt.astimezone(TZ)
-            if agora() - timedelta(hours=3) <= local <= limite:
-                f["_local_start"] = local.isoformat(timespec="minutes")
-                saida.append(f)
-        except Exception:
-            saida.append(f)
-    return saida
+def get_all_pages(path, params=None, max_pages=12):
+    out = []
+    page = 1
+    while page <= max_pages:
+        p = dict(params or {})
+        p["page"] = page
+        payload = api_get(path, p)
+        data = payload.get("data", []) if isinstance(payload, dict) else []
+        if isinstance(data, list):
+            out.extend(data)
+        pagination = payload.get("pagination") or {}
+        if not data:
+            break
+        if pagination.get("has_more") is False:
+            break
+        if not pagination:
+            break
+        page += 1
+    return out
 
 
-def odds_fixture(fid):
-    return api_get(
-        f"/odds/pre-match/fixtures/{fid}",
-        {"include": "market;bookmaker"}
-    ).get("data", [])
-
-
-def times(f):
+def team_names(f):
     home = away = None
     for p in f.get("participants") or []:
         loc = str((p.get("meta") or {}).get("location") or "").lower()
@@ -115,224 +96,323 @@ def times(f):
             home = p.get("name")
         elif loc == "away":
             away = p.get("name")
-
     if not home or not away:
         name = str(f.get("name") or "")
-        parts = re_split_match(name)
-        if not home and parts:
-            home = parts[0]
-        if not away and len(parts) > 1:
-            away = parts[1]
-
+        for sep in (" vs ", " v ", " - "):
+            if sep in name:
+                a, b = name.split(sep, 1)
+                home = home or a.strip()
+                away = away or b.strip()
+                break
     return home or "Casa", away or "Fora"
 
 
-def re_split_match(name):
-    # Sem depender de regex global no restante do app.
-    for sep in (" vs ", " v ", " - "):
-        if sep in name:
-            return [x.strip() for x in name.split(sep, 1)]
-    return [name.strip()] if name.strip() else []
+def league_name(f):
+    return str((f.get("league") or {}).get("name") or f.get("league_id") or "Liga")
 
 
-def normalize_label(raw):
+def is_libertadores(f):
+    name = league_name(f).lower()
+    return "libertadores" in name
+
+
+def is_international(f):
+    name = league_name(f).lower()
+    keys = (
+        "libertadores", "sudamericana", "champions", "europa league",
+        "conference league", "uefa", "conmebol", "world cup",
+        "club world cup", "nations league", "international"
+    )
+    return any(k in name for k in keys)
+
+
+def local_start(f):
+    raw = f.get("starting_at")
+    if not raw:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt.astimezone(TZ).strftime("%d/%m %H:%M")
+    except Exception:
+        return str(raw)
+
+
+def score_live(f):
+    participants = f.get("participants") or []
+    ids = {}
+    for p in participants:
+        loc = str((p.get("meta") or {}).get("location") or "").lower()
+        if loc in ("home", "away"):
+            ids[p.get("id")] = loc
+
+    home = away = None
+    for s in f.get("scores") or []:
+        desc = str(s.get("description") or "").upper()
+        if desc not in ("CURRENT", "2ND_HALF", "1ST_HALF", "EXTRA_TIME", "PENALTY_SHOOTOUT"):
+            continue
+        pid = s.get("participant_id")
+        goals = (s.get("score") or {}).get("goals")
+        if ids.get(pid) == "home":
+            home = goals
+        elif ids.get(pid) == "away":
+            away = goals
+
+    if home is None or away is None:
+        # Fallback: pega os últimos valores conhecidos por participante.
+        last = {}
+        for s in f.get("scores") or []:
+            pid = s.get("participant_id")
+            goals = (s.get("score") or {}).get("goals")
+            if pid is not None and goals is not None:
+                last[pid] = goals
+        for pid, loc in ids.items():
+            if loc == "home" and pid in last:
+                home = last[pid]
+            if loc == "away" and pid in last:
+                away = last[pid]
+
+    if home is None or away is None:
+        return "-"
+    return f"{home} x {away}"
+
+
+def state_text(f):
+    st = f.get("state") or {}
+    return str(st.get("short_name") or st.get("name") or f.get("state_id") or "AO VIVO")
+
+
+def upcoming_fixtures():
+    start = agora().date()
+    end = (agora() + timedelta(days=CONFIG["dias_busca"])).date()
+    rows = get_all_pages(
+        f"/fixtures/between/{start.isoformat()}/{end.isoformat()}",
+        {"include": "participants;league;state"}
+    )
+    seen, out = set(), []
+    for f in rows:
+        fid = f.get("id")
+        if fid in seen:
+            continue
+        seen.add(fid)
+        out.append(f)
+    return out
+
+
+def live_fixtures():
+    # Endpoint oficial de partidas em andamento.
+    payload = api_get(
+        "/livescores/inplay",
+        {"include": "participants;league;state;scores"}
+    )
+    return payload.get("data", []) if isinstance(payload, dict) else []
+
+
+def prematch_odds(fid):
+    return get_all_pages(
+        f"/odds/pre-match/fixtures/{fid}",
+        {"include": "market;bookmaker"},
+        max_pages=8
+    )
+
+
+def live_odds(fid):
+    # Pode não estar liberado no plano contratado.
+    try:
+        return get_all_pages(
+            f"/odds/inplay/fixtures/{fid}",
+            {"include": "market;bookmaker"},
+            max_pages=6
+        ), None
+    except Exception as e:
+        return [], str(e)
+
+
+def norm_label(raw):
     x = str(raw or "").strip().upper()
-    aliases = {
-        "1": "HOME", "HOME": "HOME", "CASA": "HOME", "LOCAL": "HOME",
+    return {
+        "1": "HOME", "HOME": "HOME", "CASA": "HOME",
         "X": "DRAW", "DRAW": "DRAW", "EMPATE": "DRAW",
-        "2": "AWAY", "AWAY": "AWAY", "FORA": "AWAY", "VISITANTE": "AWAY",
-    }
-    return aliases.get(x)
+        "2": "AWAY", "AWAY": "AWAY", "FORA": "AWAY",
+    }.get(x)
 
 
-def mercado_1x2(rows):
-    grupos = {"HOME": [], "DRAW": [], "AWAY": []}
-    detalhes = {"HOME": [], "DRAW": [], "AWAY": []}
-
+def parse_1x2(rows):
+    buckets = {"HOME": [], "DRAW": [], "AWAY": []}
     for o in rows:
-        market = o.get("market") or {}
         desc = str(
             o.get("market_description")
-            or market.get("name")
-            or market.get("developer_name")
+            or (o.get("market") or {}).get("name")
+            or (o.get("market") or {}).get("developer_name")
             or ""
         ).upper()
-
-        # SportMonks pode variar market_id por feed/provedor.
-        market_ok = (
-            "MATCH WINNER" in desc
-            or "1X2" in desc
-            or "FULLTIME RESULT" in desc
+        ok = (
+            "FULLTIME RESULT" in desc
             or "FULL TIME RESULT" in desc
-            or "3 WAY" in desc
-            or "3-WAY" in desc
+            or "MATCH WINNER" in desc
+            or "1X2" in desc
             or o.get("market_id") in (1, 52, 856)
         )
-        if not market_ok:
+        if not ok:
             continue
-
-        key = normalize_label(
-            o.get("label")
-            or o.get("name")
-            or o.get("selection")
-            or o.get("value_label")
-        )
+        key = norm_label(o.get("label") or o.get("name") or o.get("selection"))
         if not key:
             continue
-
         try:
-            odd = float(o.get("value"))
+            val = float(o.get("value"))
         except Exception:
             continue
-
-        if odd <= 1.0:
-            continue
-
-        grupos[key].append(odd)
-        detalhes[key].append({
-            "odd": odd,
-            "bookmaker": (o.get("bookmaker") or {}).get("name") or "",
-        })
+        if val > 1.0:
+            buckets[key].append(val)
 
     out = {}
-    for key, vals in grupos.items():
+    for key, vals in buckets.items():
         if vals:
             med = statistics.median(vals)
             out[key] = {
                 "odd": med,
-                "amostras": len(vals),
-                "melhor_odd": max(vals),
+                "best": max(vals),
+                "n": len(vals),
             }
 
-    # Probabilidade implícita sem vigorish, normalizada entre as seleções disponíveis.
-    soma = sum(1 / v["odd"] for v in out.values()) or 1
+    total = sum(1 / v["odd"] for v in out.values()) or 1
     for v in out.values():
-        v["prob"] = (1 / v["odd"]) / soma
-
+        v["prob"] = (1 / v["odd"]) / total
     return out
 
 
-def hora_jogo(f):
-    if f.get("_local_start"):
-        try:
-            return datetime.fromisoformat(f["_local_start"]).strftime("%d/%m %H:%M")
-        except Exception:
-            pass
-    raw = f.get("starting_at")
-    return str(raw or "-")
+def analyze_market(f, rows, live=False, odds_error=None):
+    home, away = team_names(f)
+    name = f"{home} x {away}"
+    league = league_name(f)
+    m = parse_1x2(rows)
+
+    base = {
+        "fixture_id": f.get("id"),
+        "jogo": name,
+        "liga": league,
+        "horario": local_start(f),
+        "libertadores": is_libertadores(f),
+        "internacional": is_international(f),
+        "ao_vivo": live,
+        "placar": score_live(f) if live else None,
+        "estado": state_text(f) if live else None,
+    }
+
+    if not m:
+        base.update({
+            "status": "SEM 1X2" if not odds_error else "ODDS LIVE INDISPONÍVEIS",
+            "motivo": odds_error or "Partida encontrada, mas sem mercado 1X2 disponível.",
+        })
+        return base, None
+
+    sel, v = max(m.items(), key=lambda x: x[1]["prob"])
+    pick = {"HOME": home, "DRAW": "Empate", "AWAY": away}[sel]
+    reasons = []
+    if not (CONFIG["odd_min"] <= v["odd"] <= CONFIG["odd_max"]):
+        reasons.append(f"odd {v['odd']:.2f} fora do filtro")
+    if v["prob"] < CONFIG["prob_min"]:
+        reasons.append(f"probabilidade implícita {v['prob']*100:.1f}% abaixo do filtro")
+
+    approved = not reasons
+    item = {
+        **base,
+        "mercado": "Resultado da partida (1X2)",
+        "selecao": pick,
+        "odd": round(v["odd"], 2),
+        "melhor_odd": round(v["best"], 2),
+        "casas": v["n"],
+        "prob": round(v["prob"] * 100, 1),
+        "stake": CONFIG["stake"],
+        "status": "APROVADO" if approved else "AGUARDAR",
+        "motivo": "Passou pelos filtros." if approved else "; ".join(reasons),
+    }
+    return item, item if approved else None
 
 
-def analisar_uma_vez():
+def run_analysis():
     with LOCK:
         STATE["status"] = "analisando"
         STATE["erro"] = None
 
-    sinais = []
-    diagnostico = []
-
     try:
-        jogos = jogos_24h()
-        jogos_com_odds = 0
-        jogos_analisados = 0
+        upcoming = upcoming_fixtures()
+        live = live_fixtures()
 
-        for f in jogos:
-            fid = f.get("id")
-            home, away = times(f)
-            jogo_nome = f"{home} x {away}"
-            liga = (f.get("league") or {}).get("name") or f.get("league_id") or "Liga"
-            horario = hora_jogo(f)
+        todos, sinais = [], []
+        with_odds = analyzed = 0
 
+        for f in upcoming:
             if not f.get("has_odds"):
-                diagnostico.append({
-                    "fixture_id": fid,
-                    "jogo": jogo_nome,
-                    "liga": liga,
-                    "horario": horario,
+                home, away = team_names(f)
+                item = {
+                    "fixture_id": f.get("id"),
+                    "jogo": f"{home} x {away}",
+                    "liga": league_name(f),
+                    "horario": local_start(f),
+                    "libertadores": is_libertadores(f),
+                    "internacional": is_international(f),
+                    "ao_vivo": False,
                     "status": "SEM ODDS",
-                    "motivo": "A SportMonks informou has_odds=false para esta partida.",
-                })
+                    "motivo": "A SportMonks informou que esta partida não possui odds disponíveis.",
+                }
+                todos.append(item)
                 continue
 
-            jogos_com_odds += 1
-
+            with_odds += 1
             try:
-                rows = odds_fixture(fid)
-                mercado = mercado_1x2(rows)
+                odds = prematch_odds(f.get("id"))
             except Exception as e:
-                diagnostico.append({
-                    "fixture_id": fid,
-                    "jogo": jogo_nome,
-                    "liga": liga,
-                    "horario": horario,
-                    "status": "ERRO NAS ODDS",
-                    "motivo": str(e),
-                })
-                continue
+                odds = []
+                err = str(e)
+            else:
+                err = None
 
-            if not mercado:
-                diagnostico.append({
-                    "fixture_id": fid,
-                    "jogo": jogo_nome,
-                    "liga": liga,
-                    "horario": horario,
-                    "status": "SEM 1X2",
-                    "motivo": f"Recebidas {len(rows)} cotações, mas não encontrei Casa/Empate/Fora no feed.",
-                })
-                continue
+            item, signal = analyze_market(f, odds, live=False, odds_error=err)
+            if item.get("odd") is not None:
+                analyzed += 1
+            todos.append(item)
+            if signal:
+                sinais.append(signal)
 
-            jogos_analisados += 1
-            sel, v = max(mercado.items(), key=lambda x: x[1]["prob"])
-            selecao_nome = {"HOME": home, "DRAW": "Empate", "AWAY": away}.get(sel, sel)
+        live_items = []
+        for f in live:
+            odds, live_err = live_odds(f.get("id"))
+            item, signal = analyze_market(f, odds, live=True, odds_error=live_err)
+            live_items.append(item)
+            # Sinal ao vivo só é marcado se a API realmente forneceu odds live.
+            if signal:
+                signal["tipo_sinal"] = "AO VIVO"
+                sinais.append(signal)
 
-            filtros = []
-            if not (CONFIG["odd_min"] <= v["odd"] <= CONFIG["odd_max"]):
-                filtros.append(f"odd {v['odd']:.2f} fora de {CONFIG['odd_min']:.2f}–{CONFIG['odd_max']:.2f}")
-            if v["prob"] < CONFIG["prob_min"]:
-                filtros.append(f"probabilidade {v['prob']*100:.1f}% abaixo de {CONFIG['prob_min']*100:.0f}%")
-
-            aprovado = not filtros
-            item = {
-                "fixture_id": fid,
-                "jogo": jogo_nome,
-                "liga": liga,
-                "horario": horario,
-                "mercado": "Resultado da partida (1X2)",
-                "selecao": selecao_nome,
-                "codigo_selecao": sel,
-                "odd": round(v["odd"], 2),
-                "melhor_odd": round(v["melhor_odd"], 2),
-                "casas": v["amostras"],
-                "prob": round(v["prob"] * 100, 1),
-                "prob_tipo": "probabilidade implícita normalizada pelas odds",
-                "status_sinal": "APROVADO" if aprovado else "AGUARDAR",
-                "motivo": "Passou pelos filtros." if aprovado else "; ".join(filtros),
-                "stake": CONFIG["stake"],
-                "modo": CONFIG["modo"],
-            }
-
-            diagnostico.append(item)
-            if aprovado:
-                sinais.append(item)
+        libertadores = [x for x in todos if x.get("libertadores")]
+        internacionais = [x for x in todos if x.get("internacional")]
 
         with LOCK:
-            STATE["jogos_encontrados"] = len(jogos)
-            STATE["jogos_com_odds"] = jogos_com_odds
-            STATE["jogos_analisados"] = jogos_analisados
-            STATE["sinais"] = sinais
-            STATE["diagnostico"] = diagnostico
-            STATE["ultima_atualizacao"] = agora().isoformat(timespec="seconds")
-            STATE["status"] = "online"
-
+            STATE.update({
+                "status": "online",
+                "ultima_atualizacao": agora().isoformat(timespec="seconds"),
+                "jogos_encontrados": len(upcoming),
+                "jogos_com_odds": with_odds,
+                "jogos_analisados": analyzed,
+                "libertadores": libertadores,
+                "internacionais": internacionais,
+                "ao_vivo": live_items,
+                "sinais": sinais,
+                "todos": todos,
+                "erro": None,
+            })
     except Exception as e:
         with LOCK:
-            STATE["erro"] = str(e)
             STATE["status"] = "erro"
+            STATE["erro"] = str(e)
             STATE["ultima_atualizacao"] = agora().isoformat(timespec="seconds")
 
 
 def worker():
     while True:
-        analisar_uma_vez()
+        run_analysis()
         time.sleep(CONFIG["intervalo"])
 
 
@@ -344,24 +424,23 @@ def startup():
 @app.get("/api/status")
 def status():
     with LOCK:
-        payload = {
+        return JSONResponse({
             "nome": "MATRIX - FUTEBOL",
-            "versao": "V3.1 DIAGNOSTICO MOBILE",
+            "versao": "V3.2 LIBERTADORES + INTERNACIONAL + AO VIVO",
             "config": CONFIG,
             **STATE,
-        }
-    return JSONResponse(payload)
+        })
 
 
 @app.post("/api/analisar")
-def analisar_agora():
-    analisar_uma_vez()
+def analisar():
+    run_analysis()
     return status()
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.1"}
+    return {"ok": True, "versao": "3.2"}
 
 
 @app.get("/", response_class=HTMLResponse)
