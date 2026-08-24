@@ -24,7 +24,7 @@ CONFIG = {
     "modo": "SIMULACAO",
     "bfbot_provider": os.getenv("BFBOT_PROVIDER", "MATRIX"),
     "bfbot_enabled": os.getenv("BFBOT_ENABLED", "true").strip().lower() in ("1","true","yes","sim"),
-    "bfbot_min_minutes_before_start": int(os.getenv("BFBOT_MIN_MINUTES_BEFORE_START", "60")),
+    "bfbot_min_minutes_before_start": int(os.getenv("BFBOT_MIN_MINUTES_BEFORE_START", "0")),
     "bfbot_max_tips": int(os.getenv("BFBOT_MAX_TIPS", "20")),
 }
 
@@ -572,6 +572,7 @@ def base_item(f, live=False):
         "liga": league_name(f),
         "pais": country_name(f) or "não informado",
         "horario": kickoff_text(f),
+        "start_time_iso": (parse_dt(f.get("starting_at")).isoformat() if parse_dt(f.get("starting_at")) else str(f.get("starting_at") or "")),
         "comeca_em": starts_in(f) if not live else None,
         "libertadores": is_libertadores(f),
         "internacional": is_international(f),
@@ -784,6 +785,9 @@ def bfbot_tips():
             continue
 
         mins = _minutes_until_signal(s)
+        # Keep the tip available until kickoff. This is essential because
+        # Bf Bot Manager resolves SportMonksFixtureId to Betfair IDs only close
+        # to event start (typically ~30 minutes before kickoff).
         if mins is not None and mins < CONFIG["bfbot_min_minutes_before_start"]:
             continue
 
@@ -805,7 +809,6 @@ def bfbot_tips():
             "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
             "BSP": "false",
             "EventName": str(s.get("jogo") or ""),
-            "StartTime": str(s.get("start_time_iso") or ""),
         })
 
         if len(rows) >= CONFIG["bfbot_max_tips"]:
@@ -815,7 +818,7 @@ def bfbot_tips():
 
 
 def bfbot_csv_text():
-    fields = ["Provider", "SportMonksFixtureId", "SelectionName", "MarketType", "BetType", "Size", "BSP", "EventName", "StartTime"]
+    fields = ["Provider", "SportMonksFixtureId", "SelectionName", "MarketType", "BetType", "Size", "BSP", "EventName"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
@@ -847,7 +850,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.5.2 BFBOT SPORTMONKS ID + BSP OFF",
+        "versao": "V3.5.4 BFBOT SPORTMONKS 30MIN FIX + BSP OFF",
         "config": CONFIG,
         "conta": account_info(),
         "bfbot": {
@@ -858,6 +861,8 @@ def status():
             "bet_type": "BACK",
             "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
             "feed_path": "/bfbot/tips.csv",
+            "sportmonks_fixture_id": True,
+            "bsp": False,
             "modo": "FEED PARA BFBOT MANAGER",
         },
         **state_copy,
@@ -905,7 +910,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.5.2"}
+    return {"ok": True, "versao": "3.5.4"}
 
 
 @app.get("/", response_class=HTMLResponse)

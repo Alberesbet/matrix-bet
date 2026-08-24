@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.5.2 • Bf Bot Manager • SportMonks ID • PIB OFF</div>
+      <div class="sub">V3.5.4 • Bf Bot Manager • SportMonks ID • PIB OFF</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -204,7 +204,7 @@ function renderBfBot(){
       <div class="row"><span>Provider</span><b>${esc(b.provider||'MATRIX')}</b></div>
       <div class="row"><span>Mercado</span><b>${esc(b.market_type||'MATCH_ODDS')}</b></div>
       <div class="row"><span>Tipo</span><b>${esc(b.bet_type||'BACK')}</b></div>
-      <div class="row"><span>Antecedência mínima</span><b>${b.minutos_antes??60} min</b></div>
+      <div class="row"><span>Tip permanece no feed até</span><b>INÍCIO DO JOGO</b></div>
       <div class="row"><span>SportMonks Fixture ID</span><b>${b.sportmonks_fixture_id?'ATIVO':'—'}</b></div>
       <div class="row"><span>PIB/BSP</span><b>${b.bsp===false?'DESLIGADO':'—'}</b></div>
       <div class="reason">
