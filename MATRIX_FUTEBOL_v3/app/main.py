@@ -394,6 +394,127 @@ def _load_betfair_markets_cache():
             BETFAIR_MIRROR["error"] = str(e)
 
 
+
+def _status_is_liveish(market):
+    status = _norm_text(market.get("status"))
+    return status in (
+        "open", "aberto", "in play", "inplay", "ao vivo",
+        "suspended", "suspenso"
+    )
+
+
+def _market_live_state(market):
+    """
+    1) If export has InPlay=true, trust it.
+    2) If MATRIX/SportMonks linked it live, trust it.
+    3) If export has an OPEN/SUSPENDED-like status and scheduled start has passed,
+       treat it as Betfair live candidate for up to 4 hours after kickoff.
+    4) If export has no status, infer a 'possible live' candidate from start time
+       only for up to 3 hours after kickoff. This is explicitly marked as inferred.
+    """
+    if market.get("in_play") or market.get("matrix_live"):
+        return "CONFIRMADO"
+
+    dt = _flex_start_dt(market.get("start_time"))
+    if not dt:
+        return None
+
+    now = agora()
+    delta_min = (now - dt).total_seconds() / 60.0
+    if delta_min < 0:
+        return None
+
+    if _status_is_liveish(market) and delta_min <= 240:
+        return "BETFAIR_STATUS"
+
+    # Export Markets often lacks InPlay/Status. Use only a narrow time window.
+    if delta_min <= 180:
+        return "INFERIDO_HORARIO"
+
+    return None
+
+
+def betfair_live_markets(markets=None):
+    if markets is None:
+        with LOCK:
+            markets = list(BETFAIR_MIRROR.get("markets") or [])
+
+    out = []
+    seen = set()
+    for m in markets:
+        state = _market_live_state(m)
+        if not state:
+            continue
+
+        # Avoid showing every market of the same match in AO VIVO.
+        # Prefer Result/Match Odds; otherwise one representative market per event.
+        event_key = str(m.get("event_id") or _norm_text(m.get("event_name"))).strip()
+        if not event_key:
+            continue
+
+        if event_key in seen:
+            # If current representative is not match odds but this one is,
+            # replace it later by rebuilding below.
+            continue
+        seen.add(event_key)
+
+        item = dict(m)
+        item["live_source"] = state
+        item["ao_vivo"] = True
+        out.append(item)
+
+    # Second pass: where possible, replace each event with its Match Odds market.
+    by_event = {}
+    for m in markets:
+        state = _market_live_state(m)
+        if not state:
+            continue
+        event_key = str(m.get("event_id") or _norm_text(m.get("event_name"))).strip()
+        if not event_key:
+            continue
+        current = by_event.get(event_key)
+        if current is None or (_market_is_match_odds(m) and not _market_is_match_odds(current)):
+            item = dict(m)
+            item["live_source"] = state
+            item["ao_vivo"] = True
+            by_event[event_key] = item
+
+    return list(by_event.values())
+
+
+def betfair_live_payload():
+    live = betfair_live_markets()
+    items = []
+    for m in live:
+        start = m.get("start_time")
+        dt = _flex_start_dt(start)
+        elapsed = None
+        if dt:
+            elapsed = max(0, int((agora() - dt).total_seconds() // 60))
+
+        items.append({
+            "fixture_id": m.get("fixture_id"),
+            "jogo": m.get("event_name") or "-",
+            "casa": None,
+            "fora": None,
+            "liga": m.get("liga") or "Betfair",
+            "pais": m.get("pais"),
+            "horario": start,
+            "start_time_iso": dt.isoformat() if dt else None,
+            "ao_vivo": True,
+            "status": "AO VIVO BETFAIR",
+            "placar": m.get("placar"),
+            "tempo_jogo": m.get("tempo_jogo") or (f"~{elapsed} min" if elapsed is not None else None),
+            "market_id": m.get("market_id"),
+            "event_id": m.get("event_id"),
+            "market_name": m.get("market_name"),
+            "live_source": m.get("live_source"),
+            "total_matched": m.get("total_matched"),
+            "linkado_matrix": bool(m.get("linkado_matrix")),
+        })
+    return items
+
+
 def betfair_mirror_snapshot():
     with LOCK:
         markets = list(BETFAIR_MIRROR.get("markets") or [])
@@ -406,15 +527,10 @@ def betfair_mirror_snapshot():
 
     match_odds = [
         x for x in markets
-        if "match odds" in _norm_text(x.get("market_name"))
-        or "match odds" in _norm_text(x.get("event_name"))
-        or "probabilidades" in _norm_text(x.get("market_name"))
+        if _market_is_match_odds(x)
     ]
     linked = [x for x in markets if x.get("linkado_matrix")]
-    live = [
-        x for x in markets
-        if x.get("in_play") or x.get("matrix_live")
-    ]
+    live = betfair_live_markets(markets)
     return {
         **meta,
         "markets": markets,
@@ -1333,10 +1449,11 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.9 MARKETID OBRIGATORIO + BETFAIR MIRROR",
+        "versao": "V3.10 BETFAIR AO VIVO + MARKETID OBRIGATORIO",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
+        "betfair_ao_vivo": betfair_live_payload(),
         "bfbot": {
             "habilitado": CONFIG["bfbot_enabled"],
             "provider": CONFIG["bfbot_provider"],
@@ -1388,6 +1505,18 @@ async def import_betfair_markets(request: Request):
         with LOCK:
             BETFAIR_MIRROR["error"] = str(e)
         return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
+
+
+
+@app.get("/api/betfair/live")
+def get_betfair_live():
+    rows = betfair_live_payload()
+    return JSONResponse({
+        "total": len(rows),
+        "jogos": rows,
+        "fonte": "BETFAIR/BF BOT MANAGER",
+        "observacao": "CONFIRMADO quando há InPlay; caso contrário, pode ser inferido pelo horário do mercado exportado."
+    })
 
 
 @app.get("/api/betfair/markets")
@@ -1467,7 +1596,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.9"}
+    return {"ok": True, "versao": "3.10"}
 
 
 @app.get("/", response_class=HTMLResponse)

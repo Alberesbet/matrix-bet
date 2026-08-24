@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.9 • MarketId obrigatório • Betfair Mirror • Bf Bot Manager</div>
+      <div class="sub">V3.10 • BETFAIR AO VIVO • MarketId obrigatório • Bf Bot Manager</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -83,7 +83,7 @@ function listForMode(){
   if(mode==='account'||mode==='bfbot'||mode==='betfair')return [];
   if(mode==='bets')return getBets();
   if(!state)return[];
-  if(mode==='live')return state.ao_vivo||[];
+  if(mode==='live')return [...(state.betfair_ao_vivo||[]), ...(state.ao_vivo||[])];
   if(mode==='lib')return state.libertadores||[];
   if(mode==='intl')return state.internacionais||[];
   if(mode==='todos')return state.todos||[];
@@ -358,7 +358,7 @@ function render(){
 
   if(!data.length){
     let msg='Nenhum item nesta categoria.';
-    if(mode==='live')msg='Nenhum jogo ao vivo retornado pela SportMonks agora.';
+    if(mode==='live')msg='Nenhum jogo ao vivo identificado pela Betfair/BF Bot Manager ou SportMonks agora.';
     if(mode==='lib')msg='Nenhum jogo da Libertadores retornado nos próximos 30 dias. Se houver rodada nesse período, confira se a liga está liberada no seu plano SportMonks.';
     if(mode==='bets')msg='Você ainda não registrou nenhuma aposta de simulação.';
     $('list').innerHTML=`<p class="muted">${msg}</p>`;
