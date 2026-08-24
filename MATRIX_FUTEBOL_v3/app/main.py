@@ -26,6 +26,11 @@ CONFIG = {
     "bfbot_enabled": os.getenv("BFBOT_ENABLED", "true").strip().lower() in ("1","true","yes","sim"),
     "bfbot_min_minutes_before_start": int(os.getenv("BFBOT_MIN_MINUTES_BEFORE_START", "0")),
     "bfbot_max_tips": int(os.getenv("BFBOT_MAX_TIPS", "20")),
+    # Quando IP/InPlay não vier no CSV do BF Bot Manager, Match Odds é
+    # considerado "provável ao vivo" somente dentro desta janela.
+    "betfair_live_max_minutes": int(os.getenv("BETFAIR_LIVE_MAX_MINUTES", "115")),
+    # Odds/volumes vindos de CSV mais antigo que isto são marcados como desatualizados.
+    "betfair_visible_fresh_seconds": int(os.getenv("BETFAIR_VISIBLE_FRESH_SECONDS", "120")),
 }
 
 STATE = {
@@ -603,6 +608,30 @@ def _status_is_liveish(market):
     )
 
 
+
+def _iso_age_seconds(raw):
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=TZ)
+        return max(0, int((agora() - dt.astimezone(TZ)).total_seconds()))
+    except Exception:
+        return None
+
+
+def betfair_visible_age_seconds():
+    with LOCK:
+        updated = BETFAIR_VISIBLE.get("updated_at")
+    return _iso_age_seconds(updated)
+
+
+def betfair_visible_is_fresh():
+    age = betfair_visible_age_seconds()
+    return age is not None and age <= CONFIG["betfair_visible_fresh_seconds"]
+
+
 def _market_live_state(market):
     """
     CONFIRMADO: IP/InPlay explícito ou SportMonks.
@@ -621,7 +650,7 @@ def _market_live_state(market):
         return None
 
     status = _norm_text(market.get("status"))
-    if status in ("open", "aberto", "suspended", "suspenso") and delta_min <= 210:
+    if status in ("open", "aberto", "suspended", "suspenso") and delta_min <= CONFIG["betfair_live_max_minutes"]:
         return "PROVAVEL_AO_VIVO"
 
     return None
@@ -708,6 +737,8 @@ def betfair_live_payload():
             "event_id": m.get("event_id"),
             "market_name": m.get("market_name"),
             "live_source": m.get("live_source"),
+            "dados_visiveis_frescos": betfair_visible_is_fresh(),
+            "idade_dados_segundos": betfair_visible_age_seconds(),
             "total_matched": m.get("total_matched"),
             "favorite_selection": m.get("favorite_selection"),
             "favorite_odd": m.get("favorite_odd"),
@@ -753,6 +784,10 @@ def betfair_mirror_snapshot():
         "visible_filename": visible_filename,
         "visible_updated_at": visible_updated_at,
         "visible_error": visible_error,
+        "visible_age_seconds": betfair_visible_age_seconds(),
+        "visible_fresh": betfair_visible_is_fresh(),
+        "live_max_minutes": CONFIG["betfair_live_max_minutes"],
+        "fresh_seconds": CONFIG["betfair_visible_fresh_seconds"],
         "fonte": "CSV EXPORTADO DO BF BOT MANAGER",
         "automatico": False,
         "observacao": "O BF Bot Manager não possui auto-exportação pública de mercados; esta lista espelha o último CSV exportado/importado.",
@@ -1665,7 +1700,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.11 DADOS VISIVEIS + BETFAIR AO VIVO + MARKETID",
+        "versao": "V3.12 AO VIVO ATUALIZADO + BETFAIR + MARKETID",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -1860,7 +1895,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.11"}
+    return {"ok": True, "versao": "3.12"}
 
 
 @app.get("/", response_class=HTMLResponse)

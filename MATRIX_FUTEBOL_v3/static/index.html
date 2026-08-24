@@ -19,7 +19,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 .reason,.h2h{margin-top:9px;padding-top:9px;border-top:1px solid #253942;font-size:12px;color:#c5d1cc}.score{font-size:25px;font-weight:900;margin:7px 0}.clock{font-size:17px;font-weight:900;color:#ff9fbd}
 .betbox{margin-top:10px;padding:10px;background:#0b1319;border:1px solid #22343d;border-radius:10px}.betinput{width:100px;padding:8px;border-radius:8px;border:1px solid #36505b;background:#071015;color:#fff}
 .smallgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.mini{background:#0b1319;border-radius:9px;padding:8px;text-align:center}.mini b{display:block;margin-top:3px}
-.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}
+.hist{margin-top:6px;padding:6px 0;border-top:1px dashed #263b44}.err{color:#ff9090;margin-top:10px}.money{color:#62efb5;font-weight:900}.stale{background:#3a3017;color:#ffd76b}.fresh{background:#173127;color:#62efb5}
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.11 • DADOS VISÍVEIS • BETFAIR AO VIVO • MarketId</div>
+      <div class="sub">V3.12 • AO VIVO ATUALIZADO • BETFAIR • MarketId</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -130,18 +130,24 @@ let rendered=[];
 function renderGame(x, idx){
   if(x.status==='AO VIVO BETFAIR'){
     const liveLabel=x.live_source==='CONFIRMADO'?'AO VIVO CONFIRMADO':'PROVÁVEL AO VIVO • BETFAIR';
+    const fresh=!!x.dados_visiveis_frescos;
+    const age=Number(x.idade_dados_segundos||0);
+    const ageText=age<60?`${age}s`:`${Math.floor(age/60)} min`;
     return `<div class="item">
       <div class="row"><strong>${esc(x.jogo||'-')}</strong><span class="badge live">${liveLabel}</span></div>
+      <div style="margin-top:7px"><span class="badge ${fresh?'fresh':'stale'}">${fresh?'DADOS ATUAIS':'DADOS/ODDS ANTIGOS'}${age?` • ${ageText}`:''}</span></div>
       <div class="muted">${esc(x.market_name||'Resultado da partida')} • ${esc(x.horario||'')}</div>
       ${x.tempo_jogo?`<div class="row"><span>Tempo</span><b>${esc(x.tempo_jogo)}</b></div>`:''}
       ${x.placar?`<div class="row"><span>Placar</span><b>${esc(x.placar)}</b></div>`:''}
       ${x.market_id?`<div class="row"><span>Market ID</span><b>${esc(x.market_id)}</b></div>`:''}
       ${x.favorite_selection?`<div class="row"><span>1º favorito Betfair</span><b>${esc(x.favorite_selection)}</b></div>`:''}
-      ${x.favorite_odd?`<div class="row"><span>Odd do favorito</span><b>${esc(x.favorite_odd)}</b></div>`:''}
+      ${x.favorite_odd?`<div class="row"><span>${fresh?'Odd atual do favorito':'Última odd importada'}</span><b>${esc(x.favorite_odd)}</b></div>`:''}
       ${x.total_matched?`<div class="row"><span>Total correspondido</span><b>${esc(x.total_matched)}</b></div>`:''}
       <div class="reason">${x.live_source==='CONFIRMADO'?
         'Betfair informou o estado ao vivo.':
-        'O BF Bot Manager exportou o mercado como OPEN e o horário de início já passou. Como a coluna IP veio vazia, o MATRIX marca como provável ao vivo.'}</div>
+        'O BF Bot Manager exportou o mercado como OPEN e o horário de início já passou. O MATRIX remove automaticamente esse jogo depois da janela máxima do Match Odds.'}
+        ${fresh?'':'<br><b>Atenção:</b> a odd/volume exibidos vieram do último CSV e não devem ser usados como cotação atual até importar dados visíveis novamente.'}
+      </div>
     </div>`;
   }
 
@@ -330,12 +336,15 @@ function renderBetfair(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="btn2" onclick="document.getElementById('bfMarketFile').click()">1. IMPORTAR MERCADOS / IDs</button>
         <button class="btn2" onclick="document.getElementById('bfVisibleFile').click()">2. IMPORTAR DADOS VISÍVEIS</button>
+        <button class="btn2" onclick="document.getElementById('bfVisibleFile').click()">🔄 ATUALIZAR AO VIVO</button>
         <a class="btn2" href="https://livevideo.betfair.bet.br/" target="_blank" rel="noopener">📺 BETFAIR TV OFICIAL</a>
         <a class="btn2" href="https://www.betfair.bet.br/exchange/plus/inplay/all?filter-by=live-video" target="_blank" rel="noopener">🔴 EXCHANGE AO VIVO</a>
       </div>
       <div class="muted" style="margin-top:8px">
         Mercados/IDs: ${esc(b.filename||'nenhum')} • ${esc(b.updated_at||'—')}<br>
-        Dados visíveis: ${esc(b.visible_filename||'nenhum')} • ${esc(b.visible_updated_at||'—')}
+        Dados visíveis: ${esc(b.visible_filename||'nenhum')} • ${esc(b.visible_updated_at||'—')}<br>
+        <b>${b.visible_fresh?'DADOS AO VIVO ATUAIS':'DADOS AO VIVO DESATUALIZADOS'}</b>
+        ${b.visible_age_seconds!=null?` • ${Math.floor(Number(b.visible_age_seconds)/60)} min desde a última importação`:''}
       </div>
     </div>
     ${markets.length ? markets.map(renderBetfairMarket).join('') :
@@ -422,6 +431,17 @@ async function restoreBetfairCsv(){
   }catch(e){}
 }
 
+
+window.openLiveUpdate=function(){
+  mode='betfair';
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.mode==='betfair'));
+  render();
+  setTimeout(()=>{
+    const input=document.getElementById('bfVisibleFile');
+    if(input)input.click();
+  },50);
+};
+
 function render(){
   $('title').textContent=titleForMode();
   if(mode==='account'){renderAccount();return;}
@@ -431,21 +451,33 @@ function render(){
   $('list').innerHTML='';
   rendered=data;
 
+  if(mode==='live'){
+    const b=(state&&state.betfair_mirror)||{};
+    const stale=!b.visible_fresh;
+    $('list').innerHTML=`<div class="item">
+      <div class="row"><strong>Atualização dos jogos AO VIVO</strong>
+        <span class="badge ${stale?'stale':'fresh'}">${stale?'FONTE DESATUALIZADA':'ATUALIZADO'}</span>
+      </div>
+      <div class="muted">A lista de jogos entra e sai automaticamente pelo horário. Para atualizar odds, valores e status do BF Bot Manager, importe novamente “dados visíveis”.</div>
+      <button class="btn2" style="margin-top:9px" onclick="openLiveUpdate()">🔄 ATUALIZAR DADOS AO VIVO</button>
+    </div>`;
+  }
+
   if(!data.length){
     let msg='Nenhum item nesta categoria.';
     if(mode==='live')msg='Nenhum jogo ao vivo identificado pela Betfair/BF Bot Manager ou SportMonks agora.';
     if(mode==='lib')msg='Nenhum jogo da Libertadores retornado nos próximos 30 dias. Se houver rodada nesse período, confira se a liga está liberada no seu plano SportMonks.';
     if(mode==='bets')msg='Você ainda não registrou nenhuma aposta de simulação.';
-    $('list').innerHTML=`<p class="muted">${msg}</p>`;
+    $('list').insertAdjacentHTML('beforeend',`<p class="muted">${msg}</p>`);
     return;
   }
 
   if(mode==='bets'){
-    $('list').innerHTML=data.map(renderBet).join('');
+    $('list').insertAdjacentHTML('beforeend',data.map(renderBet).join(''));
     return;
   }
 
-  $('list').innerHTML=data.map((x,i)=>renderGame(x,i)).join('');
+  $('list').insertAdjacentHTML('beforeend',data.map((x,i)=>renderGame(x,i)).join(''));
 
   data.forEach((x,i)=>{
     const inp=$(`stake_${i}`);
@@ -534,7 +566,7 @@ $('go').onclick=async()=>{
 
 $('bets').textContent=getBets().length;
 refresh();
-setInterval(refresh,15000);
+setInterval(refresh,5000);
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}
 </script>
 </body>
