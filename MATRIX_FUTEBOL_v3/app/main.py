@@ -733,15 +733,11 @@ def run_analysis():
 
 def _betfair_selection_name(signal):
     """
-    With SportMonksFixtureId, Bf Bot Manager can resolve HOME/AWAY to the
-    correct Betfair team selection near event start.
-    For draw, use Betfair's static selection name.
+    CSV principal: usa o nome real da seleção da Betfair sempre que possível.
+    Para empate, usa "The Draw", que é o nome da seleção no Match Odds.
+    SportMonksFixtureId continua no CSV como fallback.
     """
     code = str(signal.get("codigo_selecao") or "").upper()
-    if code == "HOME":
-        return "HOME"
-    if code == "AWAY":
-        return "AWAY"
     if code == "DRAW" or str(signal.get("selecao") or "").strip().lower() == "empate":
         return "The Draw"
     return str(signal.get("selecao") or "").strip()
@@ -758,6 +754,43 @@ def _minutes_until_signal(signal):
         return int((dt.astimezone(TZ) - agora()).total_seconds() // 60)
     except Exception:
         return None
+
+
+
+def _bfbot_event_name(signal):
+    """
+    Bf Bot Manager/Betfair usa normalmente 'Time Casa v Time Fora'.
+    """
+    home = str(signal.get("casa") or "").strip()
+    away = str(signal.get("fora") or "").strip()
+    if home and away:
+        return f"{home} v {away}"
+    return str(signal.get("jogo") or "").replace(" x ", " v ").strip()
+
+
+def _bfbot_start_time(signal):
+    """
+    Formato universal aceito pelo Bf Bot Manager:
+    YYYY-MM-DD HH:MM:SS
+    """
+    raw = str(signal.get("start_time_iso") or "").strip()
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=TZ)
+        dt_utc = dt.astimezone(ZoneInfo("UTC"))
+        return dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return ""
+
+
+def _bfbot_sportmonks_selection(signal):
+    code = str(signal.get("codigo_selecao") or "").upper()
+    if code in ("HOME", "AWAY", "DRAW"):
+        return code
+    return str(signal.get("selecao") or "").strip()
 
 
 def bfbot_tips():
@@ -802,13 +835,20 @@ def bfbot_tips():
 
         rows.append({
             "Provider": CONFIG["bfbot_provider"],
+            "Handicap": "0",
             "SportMonksFixtureId": str(s.get("fixture_id") or ""),
             "SelectionName": selection,
+            "MarketName": "Match Odds",
+            "EventName": _bfbot_event_name(s),
             "MarketType": "MATCH_ODDS",
+            "StartTime": _bfbot_start_time(s),
             "BetType": "BACK",
             "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
-            "BSP": "false",
-            "EventName": str(s.get("jogo") or ""),
+            "Points": "0",
+            "Price": "0",
+            "MinPrice": "1.01",
+            "MaxPrice": "1000",
+            "BSP": "False",
         })
 
         if len(rows) >= CONFIG["bfbot_max_tips"]:
@@ -818,7 +858,7 @@ def bfbot_tips():
 
 
 def bfbot_csv_text():
-    fields = ["Provider", "SportMonksFixtureId", "SelectionName", "MarketType", "BetType", "Size", "BSP", "EventName"]
+    fields = ["Provider", "Handicap", "SportMonksFixtureId", "SelectionName", "MarketName", "EventName", "MarketType", "StartTime", "BetType", "Size", "Points", "Price", "MinPrice", "MaxPrice", "BSP"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
@@ -826,6 +866,58 @@ def bfbot_csv_text():
         writer.writerow(row)
     return buf.getvalue()
 
+
+
+
+def bfbot_tips_sportmonks():
+    """
+    Feed secundário usando o formato SportMonks puro documentado pelo Bf Bot Manager.
+    Não é o feed principal. Serve como fallback perto do início da partida.
+    """
+    if not CONFIG["bfbot_enabled"]:
+        return []
+
+    with LOCK:
+        signals = list(STATE.get("sinais") or [])
+
+    rows = []
+    seen = set()
+    for s in signals:
+        if s.get("ao_vivo") or s.get("status") != "APROVADO":
+            continue
+        if not s.get("fixture_id"):
+            continue
+
+        key = (s.get("fixture_id"), s.get("codigo_selecao"))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rows.append({
+            "SportMonksFixtureId": str(s.get("fixture_id") or ""),
+            "Provider": CONFIG["bfbot_provider"],
+            "SelectionName": _bfbot_sportmonks_selection(s),
+            "MarketType": "MATCH_ODDS",
+            "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
+            "Price": "0",
+            "BetType": "BACK",
+            "BSP": "False",
+        })
+        if len(rows) >= CONFIG["bfbot_max_tips"]:
+            break
+    return rows
+
+
+def bfbot_csv_sportmonks_text():
+    fields = [
+        "SportMonksFixtureId", "Provider", "SelectionName",
+        "MarketType", "Size", "Price", "BetType", "BSP"
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(bfbot_tips_sportmonks())
+    return buf.getvalue()
 
 
 def worker():
@@ -850,7 +942,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.5.4 BFBOT SPORTMONKS 30MIN FIX + BSP OFF",
+        "versao": "V3.6 CSV BFBOT DIRETO + SPORTMONKS FALLBACK",
         "config": CONFIG,
         "conta": account_info(),
         "bfbot": {
@@ -862,6 +954,9 @@ def status():
             "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
             "feed_path": "/bfbot/tips.csv",
             "sportmonks_fixture_id": True,
+            "csv_direto": True,
+            "start_time_utc": True,
+            "event_name_betfair": True,
             "bsp": False,
             "modo": "FEED PARA BFBOT MANAGER",
         },
@@ -891,6 +986,16 @@ def bfbot_feed():
     )
 
 
+
+@app.get("/bfbot/tips_sportmonks.csv", response_class=PlainTextResponse)
+def bfbot_feed_sportmonks():
+    return PlainTextResponse(
+        bfbot_csv_sportmonks_text(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/api/bfbot")
 def bfbot_status():
     tips = bfbot_tips()
@@ -900,6 +1005,9 @@ def bfbot_status():
         "tips_prontas": len(tips),
         "feed_path": "/bfbot/tips.csv",
         "sportmonks_fixture_id": True,
+        "csv_direto": True,
+        "start_time_utc": True,
+        "event_name_betfair": True,
         "bsp": False,
         "market_type": "MATCH_ODDS",
         "bet_type": "BACK",
@@ -910,7 +1018,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.5.4"}
+    return {"ok": True, "versao": "3.6"}
 
 
 @app.get("/", response_class=HTMLResponse)
