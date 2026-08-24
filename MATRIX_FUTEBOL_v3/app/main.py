@@ -66,6 +66,8 @@ CONFIG = {
     "sportmonks_reconcile_ttl": int(os.getenv("MATRIX_RECONCILE_TTL", "45")),
     "sportmonks_reconcile_days_back": int(os.getenv("MATRIX_RECONCILE_DAYS_BACK", "2")),
     "live_status_max_age_seconds": int(os.getenv("MATRIX_LIVE_STATUS_MAX_AGE", "75")),
+    "bfbot_bridge_fresh_seconds": int(os.getenv("BFBOT_BRIDGE_FRESH_SECONDS", "90")),
+    "bfbot_bridge_max_csv_mb": int(os.getenv("BFBOT_BRIDGE_MAX_CSV_MB", "12")),
 
     # Histórico DEMO compartilhado entre notebook/celular.
     # O arquivo é um cache de servidor. Os navegadores também reidratam a nuvem
@@ -384,6 +386,25 @@ SPORTMONKS_RECONCILE_CACHE = {
     "fixtures": [],
     "live_ids": set(),
     "live_names": set(),
+    "error": None,
+}
+
+BFBOT_BRIDGE_LOCK = threading.RLock()
+BFBOT_BRIDGE = {
+    "last_seen": None,
+    "last_seen_ts": 0.0,
+    "last_filename": None,
+    "last_kind": None,
+    "last_rows": 0,
+    "last_live": 0,
+    "last_results": 0,
+    "uploads": 0,
+    "error": None,
+}
+BFBOT_RESULTS = {
+    "rows": [],
+    "updated_at": None,
+    "filename": None,
     "error": None,
 }
 
@@ -1209,53 +1230,49 @@ def betfair_api_live_snapshot():
 
 
 def betfair_live_payload():
+    bridge_rows = bfbot_bridge_live_rows()
+    if bridge_rows:
+        items, seen = [], set()
+        for m in bridge_rows:
+            key = str(m.get("event_id") or m.get("event_name") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            dt = _flex_start_dt(m.get("start_time"))
+            items.append({
+                "fixture_id": m.get("fixture_id"),
+                "jogo": m.get("event_name") or "-",
+                "casa": m.get("casa"),
+                "fora": m.get("fora"),
+                "liga": m.get("liga") or "Betfair / BF Bot",
+                "pais": m.get("pais"),
+                "horario": m.get("start_time"),
+                "start_time_iso": dt.isoformat() if dt else None,
+                "ao_vivo": True,
+                "status": "AO VIVO CONFIRMADO",
+                "placar": m.get("placar"),
+                "tempo_jogo": m.get("tempo_jogo"),
+                "market_id": m.get("market_id"),
+                "event_id": m.get("event_id"),
+                "market_name": m.get("market_name"),
+                "live_source": "BFBOT_BRIDGE",
+                "dados_visiveis_frescos": True,
+                "total_matched": m.get("total_matched"),
+                "favorite_selection": m.get("favorite_selection"),
+                "favorite_odd": m.get("favorite_odd"),
+                "favorite_amount": m.get("favorite_amount"),
+                "back_book": m.get("back_book"),
+                "lay_book": m.get("lay_book"),
+                "linkado_marketid": bool(m.get("market_id")),
+                "linkado_matrix": bool(m.get("linkado_matrix")),
+            })
+        return items
+
     api_live = betfair_api_live_snapshot()
     if api_live:
         return api_live
 
-    # Sem API Betfair, NÃO contamos mais "provável ao vivo" como ao vivo real.
-    # Somente linhas explicitamente confirmadas como in-play entram aqui.
-    live = [
-        m for m in betfair_live_markets()
-        if str(m.get("live_source") or "") == "CONFIRMADO"
-    ]
-    items = []
-    for m in live:
-        start = m.get("start_time")
-        dt = _flex_start_dt(start)
-        elapsed = None
-        if dt:
-            elapsed = max(0, int((agora() - dt).total_seconds() // 60))
-
-        items.append({
-            "fixture_id": m.get("fixture_id"),
-            "jogo": m.get("event_name") or "-",
-            "casa": None,
-            "fora": None,
-            "liga": m.get("liga") or "Betfair",
-            "pais": m.get("pais"),
-            "horario": start,
-            "start_time_iso": dt.isoformat() if dt else None,
-            "ao_vivo": True,
-            "status": "AO VIVO CONFIRMADO",
-            "placar": m.get("placar"),
-            "tempo_jogo": m.get("tempo_jogo") or (f"~{elapsed} min" if elapsed is not None else None),
-            "market_id": m.get("market_id"),
-            "event_id": m.get("event_id"),
-            "market_name": m.get("market_name"),
-            "live_source": m.get("live_source"),
-            "dados_visiveis_frescos": betfair_visible_is_fresh(),
-            "idade_dados_segundos": betfair_visible_age_seconds(),
-            "total_matched": m.get("total_matched"),
-            "favorite_selection": m.get("favorite_selection"),
-            "favorite_odd": m.get("favorite_odd"),
-            "favorite_amount": m.get("favorite_amount"),
-            "back_book": m.get("back_book"),
-            "lay_book": m.get("lay_book"),
-            "linkado_marketid": bool(m.get("market_id") or m.get("linkado_marketid")),
-            "linkado_matrix": bool(m.get("linkado_matrix")),
-        })
-    return items
+    return []
 
 
 
@@ -1464,22 +1481,225 @@ def demo_live_candidates():
     return selected[:CONFIG["demo_max_open"]]
 
 
-def demo_result_rows():
+
+def _csv_delimiter(text):
+    sample = str(text or "")[:8192]
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=";,\t").delimiter
+    except Exception:
+        return ";" if sample.count(";") >= sample.count(",") else ","
+
+
+def _bfbot_classify_csv(text):
+    s = _norm_text(str(text or "")[:16000])
+    if not s:
+        return "unknown"
+
+    visible_tokens = (
+        "evento mercado", "hora de inicio", "1 favorito",
+        "total correspondido", "placar ao vivo", "minhas selecoes"
+    )
+    result_tokens = (
+        "vencedor es", "vencedores", "winner s", "winners",
+        "profit loss", "lucro prejuizo", "settled", "liquidado"
+    )
+    market_tokens = (
+        "marketid", "market id", "id do mercado",
+        "eventid", "event id", "id do evento"
+    )
+
+    if any(t in s for t in visible_tokens):
+        return "visible"
+    if any(t in s for t in result_tokens) and ("mercado" in s or "market" in s):
+        return "results"
+    if sum(1 for t in market_tokens if t in s) >= 2:
+        return "markets"
+    return "unknown"
+
+
+def parse_bfbot_results_csv(text):
+    text = str(text or "").lstrip("\ufeff").strip()
+    if not text:
+        return []
+
+    delim = _csv_delimiter(text)
+    out, seen = [], set()
+
+    for raw in csv.DictReader(io.StringIO(text), delimiter=delim):
+        if not raw:
+            continue
+
+        combined = _row_get(raw, "Evento/mercado", "Evento / mercado")
+        event_name, market_name = _split_event_market(combined)
+
+        if not event_name:
+            event_name = _row_get(raw, "EventName", "Event Name", "Evento", "Event", "Jogo")
+        if not market_name:
+            market_name = _row_get(raw, "MarketName", "Market Name", "Mercado", "Market")
+
+        market_id = _row_get(raw, "MarketId", "Market ID", "ID do mercado", "ID do m...")
+        event_id = _row_get(raw, "EventId", "Event ID", "ID do evento", "ID do Ev...")
+        status = _row_get(raw, "Status", "Estado", "Market Status", "Status da aposta")
+        winners = _row_get(
+            raw, "Vencedor(es)", "Vencedores", "Winner(s)", "Winners", "Vencedor", "Winner"
+        )
+        lp = _row_get(raw, "L/P", "P/L", "Profit/Loss", "Lucro/Prejuízo", "Lucro Prejuizo")
+        start_time = _row_get(raw, "Hora de início", "Hora de inicio", "StartTime", "Start Time")
+        selection = _row_get(
+            raw, "Seleção", "Selecao", "Selection", "Minhas seleções", "Minhas selecoes"
+        )
+
+        if not event_name and not market_id:
+            continue
+
+        key = (
+            str(market_id or ""),
+            _norm_text(event_name),
+            _norm_text(market_name),
+            str(start_time or ""),
+            str(winners or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+
+        out.append({
+            "market_id": market_id or None,
+            "event_id": event_id or None,
+            "event_name": event_name or None,
+            "market_name": market_name or None,
+            "start_time": start_time or None,
+            "status": status or None,
+            "winners": winners or None,
+            "selection": selection or None,
+            "lp": lp or None,
+            "lp_num": _parse_br_number(lp),
+        })
+    return out
+
+
+def _bfbot_result_rows_all():
+    with BFBOT_BRIDGE_LOCK:
+        extra = list(BFBOT_RESULTS.get("rows") or [])
+    with LOCK:
+        visible = list(BETFAIR_VISIBLE.get("rows") or [])
+
+    for r in visible:
+        if r.get("winners") or _norm_text(r.get("status")) in (
+            "closed", "settled", "finalizado", "finalizada"
+        ):
+            extra.append({
+                "market_id": r.get("market_id"),
+                "event_id": r.get("event_id"),
+                "event_name": r.get("event_name"),
+                "market_name": r.get("market_name"),
+                "start_time": r.get("start_time"),
+                "status": r.get("status"),
+                "winners": r.get("winners"),
+                "selection": r.get("my_selections"),
+                "lp": r.get("lp"),
+                "lp_num": _parse_br_number(r.get("lp")),
+            })
+    return extra
+
+
+def _bfbot_find_result_for_bet(bet):
+    rows = _bfbot_result_rows_all()
+
+    mid = str(bet.get("market_id") or "").strip()
+    if mid:
+        for r in rows:
+            if str(r.get("market_id") or "").strip() == mid:
+                return r
+
+    eid = str(bet.get("event_id") or "").strip()
+    if eid:
+        same_event = [r for r in rows if str(r.get("event_id") or "").strip() == eid]
+        wanted = _norm_text(bet.get("mercado"))
+        if wanted:
+            for r in same_event:
+                rm = _norm_text(r.get("market_name"))
+                if wanted == rm or wanted in rm or rm in wanted:
+                    return r
+        if same_event:
+            return same_event[0]
+
+    ev = _norm_text(bet.get("jogo"))
+    if ev:
+        for r in rows:
+            rev = _norm_text(r.get("event_name"))
+            if ev == rev or ev in rev or rev in ev:
+                return r
+
+    bh, ba = _bet_pair(bet)
+    if bh and ba:
+        for r in rows:
+            rh, ra = _event_pair(r.get("event_name"))
+            if (
+                (_team_name_close(bh, rh) and _team_name_close(ba, ra))
+                or (_team_name_close(bh, ra) and _team_name_close(ba, rh))
+            ):
+                return r
+    return None
+
+
+def bfbot_bridge_snapshot():
+    with BFBOT_BRIDGE_LOCK:
+        s = dict(BFBOT_BRIDGE)
+
+    age = None
+    if s.get("last_seen_ts"):
+        age = max(0, time.time() - float(s["last_seen_ts"]))
+
+    s["age_seconds"] = round(age, 1) if age is not None else None
+    s["fresh"] = bool(age is not None and age <= CONFIG["bfbot_bridge_fresh_seconds"])
+    s["status"] = (
+        "CONECTADA" if s["fresh"]
+        else ("DESATUALIZADA" if s.get("last_seen") else "AGUARDANDO")
+    )
+    return s
+
+
+def bfbot_bridge_live_rows():
+    bridge = bfbot_bridge_snapshot()
+    if not bridge.get("fresh"):
+        return []
+
     with LOCK:
         rows = list(BETFAIR_VISIBLE.get("rows") or [])
-    out = []
-    for row in rows:
-        winners = str(row.get("winners") or "").strip()
-        market_id = str(row.get("market_id") or "").strip()
-        if not winners or not market_id:
+
+    return [
+        r for r in rows
+        if r.get("in_play") is True
+        and _norm_text(r.get("status")) not in (
+            "closed", "settled", "finalizado", "finalizada"
+        )
+    ]
+
+
+def demo_result_rows():
+    out, seen = [], set()
+    for r in _bfbot_result_rows_all():
+        winners = str(r.get("winners") or "").strip()
+        if not winners:
             continue
+        key = (
+            str(r.get("market_id") or ""),
+            _norm_text(r.get("event_name")),
+            _norm_text(r.get("market_name")),
+            winners,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
         out.append({
-            "market_id": market_id,
-            "event_id": row.get("event_id"),
-            "jogo": row.get("event_name"),
-            "mercado": row.get("market_name"),
+            "market_id": r.get("market_id"),
+            "event_id": r.get("event_id"),
+            "jogo": r.get("event_name"),
+            "mercado": r.get("market_name"),
             "winners": winners,
-            "status": row.get("status"),
+            "status": r.get("status"),
+            "lp": r.get("lp"),
         })
     return out
 
@@ -2334,20 +2554,32 @@ def demo_server_settle_pending(force_reconcile=False):
                 continue
 
         # ----------------------------------------------------
-        # 2) BF BOT CSV
+        # 2) PONTE BF BOT / RESULTADOS
         # ----------------------------------------------------
-        csvr = csv_results.get(mid)
+        csvr = _bfbot_find_result_for_bet(b) or csv_results.get(mid)
         if csvr and csvr.get("winners"):
-            winner = _norm_text(csvr.get("winners"))
+            winner_text = str(csvr.get("winners") or "").strip()
+            winner = _norm_text(winner_text)
             sel = _norm_text(b.get("selecao"))
+
             if winner and sel:
-                won = (winner in sel or sel in winner)
+                winner_parts = [
+                    _norm_text(x)
+                    for x in re.split(r"[,;/|]+", winner_text)
+                    if str(x).strip()
+                ]
+                won = (
+                    winner in sel
+                    or sel in winner
+                    or any(_team_name_close(sel, x) for x in winner_parts)
+                )
                 _settle_bet_object(
                     b,
                     won,
-                    "BFBOT_CSV",
-                    str(csvr.get("winners")),
+                    "BFBOT_BRIDGE",
+                    winner_text,
                 )
+                b["bfbot_lp"] = csvr.get("lp")
                 changed += 1
                 continue
 
@@ -3841,7 +4073,7 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.22 AO VIVO REAL + FINALIZACAO AUTOMATICA + RECONCILIACAO",
+        "versao": "V3.23 PONTE BFBOT + RESULTADOS AUTOMATICOS + AO VIVO FRESCO",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
@@ -3850,6 +4082,7 @@ def status():
         "demo_resultados": demo_result_rows(),
         "demo_cloud": demo_cloud_snapshot(),
         "demo_server_engine": server_engine,
+        "bfbot_bridge": bfbot_bridge_snapshot(),
         "betfair_api": {
             "conectada": _betfair_api_ready(),
             "catalogo_sem_filtro_pais": True,
@@ -3913,6 +4146,113 @@ def analisar():
     return status()
 
 
+
+
+
+@app.post("/api/bfbot/bridge/import")
+async def bfbot_bridge_import(request: Request):
+    try:
+        payload = await request.json()
+        text = str(payload.get("csv") or "")
+        filename = str(payload.get("filename") or "bfbot.csv")
+        kind = str(payload.get("kind") or "auto").strip().lower()
+
+        max_bytes = CONFIG["bfbot_bridge_max_csv_mb"] * 1024 * 1024
+        if len(text.encode("utf-8", errors="ignore")) > max_bytes:
+            return JSONResponse({"ok": False, "erro": "CSV maior que o limite."}, status_code=413)
+
+        if kind in ("", "auto"):
+            kind = _bfbot_classify_csv(text)
+
+        rows_count = live_count = results_count = 0
+
+        if kind == "markets":
+            rows = parse_betfair_markets_csv(text)
+            _save_betfair_markets_cache(text)
+            with LOCK:
+                BETFAIR_MIRROR["markets"] = rows
+                BETFAIR_MIRROR["updated_at"] = agora().isoformat()
+                BETFAIR_MIRROR["filename"] = filename
+                BETFAIR_MIRROR["rows_received"] = len(rows)
+                BETFAIR_MIRROR["error"] = None
+            rows_count = len(rows)
+
+        elif kind == "visible":
+            rows = parse_betfair_visible_csv(text)
+            _save_betfair_visible_cache(text)
+            with LOCK:
+                BETFAIR_VISIBLE["rows"] = rows
+                BETFAIR_VISIBLE["updated_at"] = agora().isoformat()
+                BETFAIR_VISIBLE["filename"] = filename
+                BETFAIR_VISIBLE["rows_received"] = len(rows)
+                BETFAIR_VISIBLE["error"] = None
+            rows_count = len(rows)
+            live_count = len([x for x in rows if x.get("in_play") is True])
+
+            result_rows = [r for r in parse_bfbot_results_csv(text) if r.get("winners")]
+            if result_rows:
+                with BFBOT_BRIDGE_LOCK:
+                    BFBOT_RESULTS["rows"] = result_rows
+                    BFBOT_RESULTS["updated_at"] = agora().isoformat()
+                    BFBOT_RESULTS["filename"] = filename
+                    BFBOT_RESULTS["error"] = None
+                results_count = len(result_rows)
+
+        elif kind == "results":
+            rows = parse_bfbot_results_csv(text)
+            with BFBOT_BRIDGE_LOCK:
+                BFBOT_RESULTS["rows"] = rows
+                BFBOT_RESULTS["updated_at"] = agora().isoformat()
+                BFBOT_RESULTS["filename"] = filename
+                BFBOT_RESULTS["error"] = None
+            rows_count = len(rows)
+            results_count = len([r for r in rows if r.get("winners")])
+
+        else:
+            return JSONResponse({
+                "ok": False,
+                "erro": "CSV não reconhecido como exportação do BF Bot.",
+                "kind": kind,
+            }, status_code=400)
+
+        with BFBOT_BRIDGE_LOCK:
+            BFBOT_BRIDGE["last_seen"] = agora().isoformat()
+            BFBOT_BRIDGE["last_seen_ts"] = time.time()
+            BFBOT_BRIDGE["last_filename"] = filename
+            BFBOT_BRIDGE["last_kind"] = kind
+            BFBOT_BRIDGE["last_rows"] = rows_count
+            BFBOT_BRIDGE["last_live"] = live_count
+            BFBOT_BRIDGE["last_results"] = results_count
+            BFBOT_BRIDGE["uploads"] = int(BFBOT_BRIDGE.get("uploads") or 0) + 1
+            BFBOT_BRIDGE["error"] = None
+
+        settlement = demo_server_settle_pending(force_reconcile=True)
+
+        return JSONResponse({
+            "ok": True,
+            "kind": kind,
+            "filename": filename,
+            "rows": rows_count,
+            "live": live_count,
+            "resultados_com_vencedor": results_count,
+            "liquidacao": settlement,
+            "ponte": bfbot_bridge_snapshot(),
+        })
+    except Exception as e:
+        with BFBOT_BRIDGE_LOCK:
+            BFBOT_BRIDGE["error"] = str(e)
+        return JSONResponse({"ok": False, "erro": str(e)}, status_code=400)
+
+
+@app.get("/api/bfbot/bridge")
+def bfbot_bridge_status():
+    with BFBOT_BRIDGE_LOCK:
+        rows = list(BFBOT_RESULTS.get("rows") or [])
+    return JSONResponse({
+        "ponte": bfbot_bridge_snapshot(),
+        "resultados_carregados": len(rows),
+        "resultados_com_vencedor": len([r for r in rows if r.get("winners")]),
+    })
 
 
 @app.post("/api/betfair/markets/import")
@@ -4076,7 +4416,7 @@ def bfbot_status():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.22", "servidor_unico": True, "reconciliacao": True}
+    return {"ok": True, "versao": "3.23", "servidor_unico": True, "reconciliacao": True, "ponte_bfbot": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -4087,6 +4427,6 @@ def home():
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
             "Expires": "0",
-            "X-Matrix-Version": "3.22",
+            "X-Matrix-Version": "3.23",
         },
     )

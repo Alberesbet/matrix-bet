@@ -1,0 +1,19 @@
+PONTE BF BOT MANAGER -> MATRIX V3.23
+
+1. Faça o deploy da V3.23.
+2. Extraia esta pasta no notebook.
+3. Dê dois cliques em INICIAR_PONTE_BFBOT.bat.
+4. Deixe a janela aberta.
+5. No BF Bot, exporte o CSV para Downloads, Documentos, Área de Trabalho ou C:\MATRIX_BFBOT.
+6. Quando o arquivo for criado/alterado, a ponte envia ao MATRIX em até 10 segundos.
+
+O MATRIX aceita:
+- Exportar mercados
+- Exportar todos os dados visíveis
+- CSV de resultados/histórico
+
+Quando o arquivo tiver Vencedor(es), o MATRIX tenta finalizar as DEMO imediatamente.
+
+IMPORTANTE:
+A ponte não lê senha, não entra na conta Betfair e não envia aposta real.
+Ela automatiza o envio do arquivo que o BF Bot gravar.

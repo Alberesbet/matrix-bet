@@ -26,12 +26,12 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}h1{font-size:22px}.row{font-size:13px}.smallgrid{grid-template-columns:1fr 1fr}.item{padding:12px}}
 </style>
 </head>
-<body data-matrix-version="3.22">
+<body data-matrix-version="3.23">
 <div class="wrap">
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.22 • AO VIVO ATUALIZADO • FINALIZAÇÃO AUTOMÁTICA • BRASIL</div>
+      <div class="sub">V3.23 • PONTE BF BOT • RESULTADOS AUTOMÁTICOS • AO VIVO FRESCO</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="installAppTop" class="btn2">📲 INSTALAR APP</button>
@@ -52,8 +52,9 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <b>☁ DEMO SINCRONIZADA</b><br>
     Notebook e celular usam o MESMO histórico do servidor.
     “Minhas apostas”, AUTO DEMO, saldo, cancelamentos e resultados ficam iguais.
-    AO VIVO agora usa Betfair API quando conectada; sem ela, usa somente o
-    SportMonks in-play atual. Mercado antigo do CSV não fica mais contado como AO VIVO.
+    AO VIVO usa primeiro a PONTE BF BOT quando ela estiver com arquivo fresco.
+    Sem ponte fresca, usa Betfair API se disponível; caso contrário, SportMonks.
+    CSV antigo nunca fica contado como AO VIVO.
     “Partidas em andamento” considera apenas apostas de jogos que ainda estão realmente em andamento.
   </div>
 
@@ -78,6 +79,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Canceladas</div><div id="demoCanceledCount" class="big">0</div></div>
     <div class="card"><div class="label">Sincronização</div><div id="cloudSyncStatus" class="big" style="font-size:18px">CONECTANDO</div></div>
     <div class="card"><div class="label">Fonte AO VIVO</div><div id="liveSourceStatus" class="big" style="font-size:16px">...</div></div>
+    <div class="card"><div class="label">Ponte BF Bot</div><div id="bfbotBridgeStatus" class="big" style="font-size:16px">AGUARDANDO</div></div>
   </div>
 
   <div class="tabs">
@@ -228,6 +230,10 @@ function updateDemoCounters(){
   if($('demoLossesCount'))$('demoLossesCount').textContent=cloud.derrotas??0;
   if($('demoCanceledCount'))$('demoCanceledCount').textContent=cloud.canceladas??0;
   if($('bets'))$('bets').textContent=cloud.total??allBets.length;
+  if($('bfbotBridgeStatus')){
+    const bridge=(state&&state.bfbot_bridge)||{};
+    $('bfbotBridgeStatus').textContent=bridge.status||'AGUARDANDO';
+  }
 }
 
 function settleDemoBets(){
@@ -1149,10 +1155,20 @@ async function refresh(){
     $('jogos').textContent=state.jogos_encontrados||0;
     $('lib').textContent=(state.libertadores||[]).length;
     {
+      const bridge=state.bfbot_bridge||{};
       const betfairApiConnected=!!(state.betfair_api&&state.betfair_api.conectada);
-      const source = betfairApiConnected
-        ? (state.betfair_ao_vivo||[])
-        : (state.ao_vivo||[]);
+
+      let source=[], sourceName='SPORTMONKS';
+      if(bridge.fresh){
+        source=state.betfair_ao_vivo||[];
+        sourceName='BF BOT';
+      }else if(betfairApiConnected){
+        source=state.betfair_ao_vivo||[];
+        sourceName='BETFAIR API';
+      }else{
+        source=state.ao_vivo||[];
+        sourceName='SPORTMONKS';
+      }
 
       const liveKeys=new Set();
       source.forEach(x=>{
@@ -1162,9 +1178,7 @@ async function refresh(){
       $('live').textContent=liveKeys.size;
 
       if($('liveSourceStatus')){
-        $('liveSourceStatus').textContent = betfairApiConnected
-          ? 'BETFAIR API'
-          : 'SPORTMONKS';
+        $('liveSourceStatus').textContent=sourceName;
       }
     }
     $('intl').textContent=(state.internacionais||[]).length;
