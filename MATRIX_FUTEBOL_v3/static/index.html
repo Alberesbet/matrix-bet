@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.4 • CONTA • H2H • Libertadores • Internacionais • AO VIVO • Simulação</div>
+      <div class="sub">V3.5 • Bf Bot Manager • H2H • Libertadores • AO VIVO</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -52,6 +52,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <button class="tab" data-mode="todos">TODOS</button>
     <button class="tab" data-mode="bets">MINHAS APOSTAS</button>
     <button class="tab" data-mode="account">CONTA</button>
+    <button class="tab" data-mode="bfbot">BFBOT</button>
   </div>
 
   <div class="card" style="margin-top:9px">
@@ -78,7 +79,7 @@ function badge(x){
 }
 
 function listForMode(){
-  if(mode==='account')return [];
+  if(mode==='account'||mode==='bfbot')return [];
   if(mode==='bets')return getBets();
   if(!state)return[];
   if(mode==='live')return state.ao_vivo||[];
@@ -88,7 +89,7 @@ function listForMode(){
   return state.sinais||[];
 }
 function titleForMode(){
-  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta'}[mode];
+  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager'}[mode];
 }
 
 function h2hHtml(x){
@@ -190,9 +191,37 @@ function renderAccount(){
     </div>`;
 }
 
+
+function renderBfBot(){
+  const b=(state&&state.bfbot)||{};
+  const feed=location.origin+(b.feed_path||'/bfbot/tips.csv');
+  $('list').innerHTML=`
+    <div class="item">
+      <div class="row"><strong>Bf Bot Manager</strong>
+        <span class="badge ${b.habilitado?'':'wait'}">${b.habilitado?'FEED ATIVO':'DESATIVADO'}</span>
+      </div>
+      <div class="row"><span>Tips prontas</span><b>${b.tips_prontas??0}</b></div>
+      <div class="row"><span>Provider</span><b>${esc(b.provider||'MATRIX')}</b></div>
+      <div class="row"><span>Mercado</span><b>${esc(b.market_type||'MATCH_ODDS')}</b></div>
+      <div class="row"><span>Tipo</span><b>${esc(b.bet_type||'BACK')}</b></div>
+      <div class="row"><span>Antecedência mínima</span><b>${b.minutos_antes??60} min</b></div>
+      <div class="reason">
+        <b>URL do arquivo de tips:</b><br>
+        <span style="word-break:break-all">${esc(feed)}</span>
+      </div>
+      <div style="margin-top:10px">
+        <a class="btn2" href="${esc(b.feed_path||'/bfbot/tips.csv')}" target="_blank">ABRIR CSV</a>
+      </div>
+      <div class="muted" style="margin-top:10px">
+        O feed envia somente sinais pré-jogo APROVADOS. O Bf Bot Manager é quem conecta à conta Betfair e executa a estratégia configurada.
+      </div>
+    </div>`;
+}
+
 function render(){
   $('title').textContent=titleForMode();
   if(mode==='account'){renderAccount();return;}
+  if(mode==='bfbot'){renderBfBot();return;}
   const data=listForMode();
   $('list').innerHTML='';
   rendered=data;

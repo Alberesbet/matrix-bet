@@ -1,11 +1,11 @@
-import os, time, threading, statistics
+import os, time, threading, statistics, csv, io
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE = "https://api.sportmonks.com/v3/football"
@@ -22,6 +22,10 @@ CONFIG = {
     "dias_busca": int(os.getenv("MATRIX_DIAS_BUSCA", "30")),
     "h2h_jogos": int(os.getenv("MATRIX_H2H_JOGOS", "5")),
     "modo": "SIMULACAO",
+    "bfbot_provider": os.getenv("BFBOT_PROVIDER", "MATRIX"),
+    "bfbot_enabled": os.getenv("BFBOT_ENABLED", "true").strip().lower() in ("1","true","yes","sim"),
+    "bfbot_min_minutes_before_start": int(os.getenv("BFBOT_MIN_MINUTES_BEFORE_START", "60")),
+    "bfbot_max_tips": int(os.getenv("BFBOT_MAX_TIPS", "20")),
 }
 
 STATE = {
@@ -725,6 +729,94 @@ def run_analysis():
             STATE["ultima_atualizacao"] = agora().isoformat(timespec="seconds")
 
 
+
+def _betfair_selection_name(signal):
+    """
+    Bf Bot Manager matches tips to Betfair selections.
+    Team names are exported as-is; a draw is exported using Betfair's
+    conventional 'The Draw' selection name.
+    """
+    if signal.get("codigo_selecao") == "DRAW" or str(signal.get("selecao") or "").lower() == "empate":
+        return "The Draw"
+    return str(signal.get("selecao") or "").strip()
+
+
+def _minutes_until_signal(signal):
+    raw = signal.get("start_time_iso")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return int((dt.astimezone(TZ) - agora()).total_seconds() // 60)
+    except Exception:
+        return None
+
+
+def bfbot_tips():
+    """
+    Returns pre-match approved tips only.
+    Live tips are intentionally excluded from the CSV URL because Bf Bot
+    Manager's web-location importer is designed around scheduled reloading,
+    not second-by-second in-play execution.
+    """
+    if not CONFIG["bfbot_enabled"]:
+        return []
+
+    with LOCK:
+        signals = list(STATE.get("sinais") or [])
+
+    rows = []
+    seen = set()
+
+    for s in signals:
+        if s.get("ao_vivo"):
+            continue
+        if s.get("status") != "APROVADO":
+            continue
+        if not s.get("selecao") or not s.get("fixture_id"):
+            continue
+
+        mins = _minutes_until_signal(s)
+        if mins is not None and mins < CONFIG["bfbot_min_minutes_before_start"]:
+            continue
+
+        event_key = (s.get("fixture_id"), s.get("codigo_selecao"))
+        if event_key in seen:
+            continue
+        seen.add(event_key)
+
+        selection = _betfair_selection_name(s)
+        if not selection:
+            continue
+
+        rows.append({
+            "Provider": CONFIG["bfbot_provider"],
+            "SelectionName": selection,
+            "MarketType": "MATCH_ODDS",
+            "BetType": "BACK",
+            "Size": f"{float(s.get('stake_padrao') or CONFIG['stake']):.2f}",
+            "EventName": str(s.get("jogo") or ""),
+        })
+
+        if len(rows) >= CONFIG["bfbot_max_tips"]:
+            break
+
+    return rows
+
+
+def bfbot_csv_text():
+    fields = ["Provider", "SelectionName", "MarketType", "BetType", "Size", "EventName"]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    for row in bfbot_tips():
+        writer.writerow(row)
+    return buf.getvalue()
+
+
+
 def worker():
     while True:
         run_analysis()
@@ -741,9 +833,19 @@ def status():
     with LOCK:
         return JSONResponse({
             "nome": "MATRIX - FUTEBOL",
-            "versao": "V3.4 CONTA + H2H + AO VIVO + SIMULADOR",
+            "versao": "V3.5 BFBOT FEED + CONTA + H2H + AO VIVO",
             "config": CONFIG,
             "conta": account_info(),
+            "bfbot": {
+                "habilitado": CONFIG["bfbot_enabled"],
+                "provider": CONFIG["bfbot_provider"],
+                "tips_prontas": len(bfbot_tips()),
+                "market_type": "MATCH_ODDS",
+                "bet_type": "BACK",
+                "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
+                "feed_path": "/bfbot/tips.csv",
+                "modo": "FEED PARA BFBOT MANAGER",
+            },
             **STATE,
         })
 
@@ -760,9 +862,34 @@ def api_account():
     return JSONResponse(account_info())
 
 
+
+@app.get("/bfbot/tips.csv", response_class=PlainTextResponse)
+def bfbot_feed():
+    return PlainTextResponse(
+        bfbot_csv_text(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/api/bfbot")
+def bfbot_status():
+    tips = bfbot_tips()
+    return JSONResponse({
+        "habilitado": CONFIG["bfbot_enabled"],
+        "provider": CONFIG["bfbot_provider"],
+        "tips_prontas": len(tips),
+        "feed_path": "/bfbot/tips.csv",
+        "market_type": "MATCH_ODDS",
+        "bet_type": "BACK",
+        "minutos_antes": CONFIG["bfbot_min_minutes_before_start"],
+        "tips": tips,
+    })
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.4"}
+    return {"ok": True, "versao": "3.5"}
 
 
 @app.get("/", response_class=HTMLResponse)
