@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.13 • ODD BETFAIR REAL • AO VIVO • MarketId</div>
+      <div class="sub">V3.14 • AUTO DEMO • VALOR NA SELEÇÃO • BETFAIR</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -42,6 +42,8 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <div class="card"><div class="label">Com odds</div><div id="odds" class="big">0</div></div>
     <div class="card"><div class="label">Sinais aprovados</div><div id="signals" class="big">0</div></div>
     <div class="card"><div class="label">Minhas apostas</div><div id="bets" class="big">0</div></div>
+    <div class="card"><div class="label">Saldo DEMO</div><div id="demoBalance" class="big">R$ 1.000,00</div></div>
+    <div class="card"><div class="label">Auto DEMO</div><div id="demoAutoCount" class="big">0</div></div>
   </div>
 
   <div class="tabs">
@@ -51,6 +53,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <button class="tab" data-mode="intl">INTERNACIONAIS</button>
     <button class="tab" data-mode="todos">TODOS</button>
     <button class="tab" data-mode="bets">MINHAS APOSTAS</button>
+    <button class="tab" data-mode="demo">🤖 AUTO DEMO</button>
     <button class="tab" data-mode="account">CONTA</button>
     <button class="tab" data-mode="bfbot">BFBOT</button>
     <button class="tab" data-mode="betfair">BETFAIR</button>
@@ -72,6 +75,196 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function getBets(){try{return JSON.parse(localStorage.getItem('matrix_bets_v33')||'[]')}catch(e){return[]}}
 function saveBets(v){localStorage.setItem('matrix_bets_v33',JSON.stringify(v));$('bets').textContent=v.length}
 
+function normText(s){
+  return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+}
+
+function demoStats(){
+  const cfg=(state&&state.demo_auto)||{};
+  const initial=Number(cfg.banca_inicial||1000);
+  const bets=getBets();
+  let locked=0, realized=0, wins=0, losses=0, pending=0;
+  bets.forEach(b=>{
+    const stake=Number(b.stake||0);
+    if(b.status==='GANHOU'){
+      wins++;
+      realized+=Number(b.lucro_real??b.lucro??0);
+    }else if(b.status==='PERDEU'){
+      losses++;
+      realized-=stake;
+    }else if(b.status==='ANULADA'){
+      // zero
+    }else{
+      pending++;
+      locked+=stake;
+    }
+  });
+  return {initial,available:initial+realized-locked,wins,losses,pending,total:bets.length,realized};
+}
+
+function updateDemoCounters(){
+  const s=demoStats();
+  if($('demoBalance'))$('demoBalance').textContent=money(s.available);
+  if($('demoAutoCount'))$('demoAutoCount').textContent=((state&&state.demo_auto&&state.demo_auto.total_candidatos)||0);
+}
+
+function settleDemoBets(){
+  if(!state)return;
+  const results=state.demo_resultados||[];
+  if(!results.length)return;
+  const byMarket=new Map(results.map(r=>[String(r.market_id||''),r]));
+  const bets=getBets();
+  let changed=false;
+
+  bets.forEach(b=>{
+    if(b.status!=='AGUARDANDO RESULTADO')return;
+    const r=byMarket.get(String(b.market_id||''));
+    if(!r||!r.winners)return;
+
+    const winner=normText(r.winners);
+    const selection=normText(b.selecao);
+    if(!winner||!selection)return;
+
+    const won=winner.includes(selection)||selection.includes(winner);
+    b.status=won?'GANHOU':'PERDEU';
+    b.finalizada_em=new Date().toLocaleString('pt-BR');
+    if(won){
+      b.retorno_real=Number((Number(b.stake||0)*Number(b.odd||0)).toFixed(2));
+      b.lucro_real=Number((b.retorno_real-Number(b.stake||0)).toFixed(2));
+    }else{
+      b.retorno_real=0;
+      b.lucro_real=Number((-Number(b.stake||0)).toFixed(2));
+    }
+    changed=true;
+  });
+  if(changed)saveBets(bets);
+}
+
+function autoDemoBets(){
+  const d=(state&&state.demo_auto)||{};
+  if(!d.habilitado||!d.dados_frescos_para_demo)return;
+  const candidates=d.candidatos||[];
+  if(!candidates.length)return;
+
+  const bets=getBets();
+  const existing=new Set(bets.map(b=>String(b.demo_key||'')));
+  let pending=bets.filter(b=>b.status==='AGUARDANDO RESULTADO').length;
+  let available=demoStats().available;
+  const maxOpen=Number(d.max_abertas||20);
+  let changed=false;
+
+  for(const c of candidates){
+    if(pending>=maxOpen)break;
+    const key=String(c.demo_key||'');
+    if(!key||existing.has(key))continue;
+
+    const stake=Number(c.stake||d.valor_por_entrada||10);
+    const odd=Number(c.odd||0);
+    if(available<stake||odd<=1)continue;
+
+    const retorno=Number((stake*odd).toFixed(2));
+    bets.unshift({
+      id:Date.now()+Math.floor(Math.random()*100000),
+      demo_key:key,
+      auto_demo:true,
+      modo:'AUTO DEMO',
+      market_id:c.market_id,
+      event_id:c.event_id,
+      jogo:c.jogo,
+      liga:'Betfair AO VIVO',
+      horario:c.start_time||'',
+      minuto:c.minuto,
+      mercado:c.mercado,
+      market_kind:c.market_kind,
+      selecao:c.selecao,
+      stake:Number(stake.toFixed(2)),
+      odd:Number(odd.toFixed(2)),
+      fonte_odd:'BETFAIR',
+      valor_na_selecao:Number(c.valor_na_selecao||0),
+      total_correspondido:c.total_correspondido,
+      indice_demo:c.indice_demo,
+      retorno,
+      lucro:Number((retorno-stake).toFixed(2)),
+      motivo:c.motivo,
+      status:'AGUARDANDO RESULTADO',
+      criada_em:new Date().toLocaleString('pt-BR')
+    });
+    existing.add(key);
+    available-=stake;
+    pending++;
+    changed=true;
+  }
+  if(changed)saveBets(bets);
+}
+
+function currentMonthBets(){
+  const now=new Date();
+  return getBets().filter(b=>{
+    const m=String(b.criada_em||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if(!m)return true;
+    return Number(m[2])===now.getMonth()+1&&Number(m[3])===now.getFullYear();
+  });
+}
+
+function renderMonthlySummary(){
+  const bets=currentMonthBets();
+  let wins=0,losses=0,pending=0,profit=0,stakes=0;
+  bets.forEach(b=>{
+    stakes+=Number(b.stake||0);
+    if(b.status==='GANHOU'){wins++;profit+=Number(b.lucro_real??b.lucro??0);}
+    else if(b.status==='PERDEU'){losses++;profit-=Number(b.stake||0);}
+    else pending++;
+  });
+  return `<div class="item">
+    <div class="row"><strong>Resumo do mês</strong><span class="badge">DEMO</span></div>
+    <div class="smallgrid">
+      <div class="mini">Apostas<b>${bets.length}</b></div>
+      <div class="mini">Vitórias<b>${wins}</b></div>
+      <div class="mini">Derrotas<b>${losses}</b></div>
+      <div class="mini">Pendentes<b>${pending}</b></div>
+      <div class="mini">Valor apostado<b>${money(stakes)}</b></div>
+      <div class="mini">Lucro/Prejuízo<b>${money(profit)}</b></div>
+    </div>
+    <div class="row"><span>Saldo demo disponível</span><b class="money">${money(demoStats().available)}</b></div>
+  </div>`;
+}
+
+function renderDemo(){
+  const d=(state&&state.demo_auto)||{};
+  const s=demoStats();
+  const c=d.candidatos||[];
+  $('list').innerHTML=`
+    <div class="item">
+      <div class="row"><strong>AUTO DEMO AO VIVO</strong><span class="badge">${d.habilitado?'LIGADO':'DESLIGADO'}</span></div>
+      <div class="row"><span>Banca de demonstração</span><b>${money(d.banca_inicial||1000)}</b></div>
+      <div class="row"><span>Valor por entrada</span><b>${money(d.valor_por_entrada||10)}</b></div>
+      <div class="row"><span>Saldo disponível</span><b class="money">${money(s.available)}</b></div>
+      <div class="row"><span>Máximo por partida</span><b>${d.max_por_partida||2}</b></div>
+      <div class="row"><span>Janela</span><b>${d.minuto_min||2}–${d.minuto_max||75} min</b></div>
+      <div class="row"><span>Odd</span><b>${d.odd_min||1.3}–${d.odd_max||3.5}</b></div>
+      <div class="row"><span>Total correspondido mínimo</span><b>${money(d.liquidez_minima||500)}</b></div>
+      <div class="row"><span>Valor mínimo no nome/seleção</span><b>${money(d.valor_minimo_na_selecao||50)}</b></div>
+      <div class="row"><span>Candidatos agora</span><b>${d.total_candidatos||0}</b></div>
+      <div class="reason"><b>Análise por valor no nome:</b> ${esc(d.observacao_valor||'')}</div>
+      <div class="reason"><b>Mercados:</b> ${(d.mercados||[]).map(esc).join(' • ')}</div>
+      <div class="reason"><b>Segurança:</b> somente demonstração. Nenhuma ordem real é enviada.</div>
+    </div>
+    ${c.map(x=>`<div class="item">
+      <div class="row"><strong>${esc(x.jogo)}</strong><span class="badge live">AUTO DEMO</span></div>
+      <div class="muted">~${x.minuto} min • ${esc(x.mercado)}</div>
+      <div class="row"><span>Seleção</span><b>${esc(x.selecao)}</b></div>
+      <div class="row"><span>Odd BETFAIR</span><b>${Number(x.odd).toFixed(2)}</b></div>
+      <div class="row"><span>Valor disponível no nome/seleção</span><b>${money(x.valor_na_selecao)}</b></div>
+      <div class="row"><span>Total correspondido do mercado</span><b>${esc(x.total_correspondido||'—')}</b></div>
+      <div class="row"><span>Índice de triagem</span><b>${x.indice_demo}%</b></div>
+      <div class="row"><span>Valor DEMO</span><b>${money(x.stake)}</b></div>
+      <div class="row"><span>Retorno potencial</span><b class="money">${money(x.retorno_potencial)}</b></div>
+      <div class="reason">${esc(x.motivo)}</div>
+    </div>`).join('')}
+    ${!c.length?'<div class="item"><b>Nenhuma entrada AUTO DEMO liberada agora.</b><div class="muted">Atualize os dados visíveis para renovar odds e valores.</div></div>':''}
+  `;
+}
+
 function badge(x){
   if(x.ao_vivo)return '<span class="badge live">AO VIVO</span>';
   if(x.status==='APROVADO')return '<span class="badge">APROVADO</span>';
@@ -80,7 +273,7 @@ function badge(x){
 }
 
 function listForMode(){
-  if(mode==='account'||mode==='bfbot'||mode==='betfair')return [];
+  if(mode==='account'||mode==='bfbot'||mode==='betfair'||mode==='demo')return [];
   if(mode==='bets')return getBets();
   if(!state)return[];
   if(mode==='live')return [...(state.betfair_ao_vivo||[]), ...(state.ao_vivo||[])];
@@ -90,7 +283,7 @@ function listForMode(){
   return state.sinais||[];
 }
 function titleForMode(){
-  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager',betfair:'Mercados Betfair / BF Bot Manager'}[mode];
+  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Histórico mensal de apostas DEMO',demo:'AUTO DEMO AO VIVO',account:'Informações da conta',bfbot:'Integração Bf Bot Manager',betfair:'Mercados Betfair / BF Bot Manager'}[mode];
 }
 
 function h2hHtml(x){
@@ -182,7 +375,7 @@ function renderGame(x, idx){
 
 function renderBet(b){
   return `<div class="item">
-    <div class="row"><strong>${esc(b.jogo)}</strong><span class="badge">SIMULAÇÃO</span></div>
+    <div class="row"><strong>${esc(b.jogo)}</strong><span class="badge">${b.auto_demo?'AUTO DEMO':'SIMULAÇÃO'}</span></div>
     <div class="muted">${esc(b.liga||'')} • ${esc(b.horario||'')}</div>
     <div class="row"><span>Apostado em</span><b>${esc(b.selecao)}</b></div>
     <div class="row"><span>Mercado</span><b>${esc(b.mercado)}</b></div>
@@ -190,6 +383,8 @@ function renderBet(b){
     <div class="row"><span>Odd registrada</span><b>${b.odd}</b></div><div class="row"><span>Fonte da odd</span><b>${esc(b.fonte_odd||"—")}</b></div>
     <div class="row"><span>Retorno potencial</span><b class="money">${money(b.retorno)}</b></div>
     <div class="row"><span>Lucro potencial</span><b class="money">${money(b.lucro)}</b></div>
+    ${b.valor_na_selecao?`<div class="row"><span>Valor no nome/seleção</span><b>${money(b.valor_na_selecao)}</b></div>`:''}
+    ${b.status==='GANHOU'||b.status==='PERDEU'?`<div class="row"><span>Resultado realizado</span><b class="money">${money(b.lucro_real||0)}</b></div>`:''}
     <div class="row"><span>Status</span><b>${esc(b.status||'AGUARDANDO RESULTADO')}</b></div>
     <div class="muted" style="margin-top:8px">Registrada em ${esc(b.criada_em)}</div>
   </div>`;
@@ -457,6 +652,7 @@ function render(){
   if(mode==='account'){renderAccount();return;}
   if(mode==='bfbot'){renderBfBot();return;}
   if(mode==='betfair'){renderBetfair();return;}
+  if(mode==='demo'){renderDemo();return;}
   const data=listForMode();
   $('list').innerHTML='';
   rendered=data;
@@ -483,6 +679,7 @@ function render(){
   }
 
   if(mode==='bets'){
+    $('list').insertAdjacentHTML('beforeend',renderMonthlySummary());
     $('list').insertAdjacentHTML('beforeend',data.map(renderBet).join(''));
     return;
   }
@@ -551,7 +748,10 @@ async function refresh(){
     $('intl').textContent=(state.internacionais||[]).length;
     $('odds').textContent=state.jogos_com_odds||0;
     $('signals').textContent=(state.sinais||[]).length;
+    settleDemoBets();
+    autoDemoBets();
     $('bets').textContent=getBets().length;
+    updateDemoCounters();
     $('error').textContent=state.erro?('Erro: '+state.erro):'';
     await restoreBetfairCsv();
     render();

@@ -1,4 +1,4 @@
-const CACHE="matrix-futebol-v313betfairodd";
+const CACHE="matrix-futebol-v314autodemovalue";
 self.addEventListener("install",()=>self.skipWaiting());
 self.addEventListener("activate",e=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(

@@ -1,4 +1,4 @@
-import os, time, threading, statistics, csv, io, re, unicodedata
+import os, time, threading, statistics, csv, io, re, unicodedata, math
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -31,6 +31,20 @@ CONFIG = {
     "betfair_live_max_minutes": int(os.getenv("BETFAIR_LIVE_MAX_MINUTES", "115")),
     # Odds/volumes vindos de CSV mais antigo que isto são marcados como desatualizados.
     "betfair_visible_fresh_seconds": int(os.getenv("BETFAIR_VISIBLE_FRESH_SECONDS", "120")),
+
+    # AUTO DEMO: somente simulação local no painel.
+    "demo_auto_enabled": os.getenv("MATRIX_DEMO_AUTO", "true").strip().lower() in ("1","true","yes","sim"),
+    "demo_bank": float(os.getenv("MATRIX_DEMO_BANK", "1000")),
+    "demo_stake": float(os.getenv("MATRIX_DEMO_STAKE", "10")),
+    "demo_odd_min": float(os.getenv("MATRIX_DEMO_ODD_MIN", "1.30")),
+    "demo_odd_max": float(os.getenv("MATRIX_DEMO_ODD_MAX", "3.50")),
+    "demo_min_market_liquidity": float(os.getenv("MATRIX_DEMO_MIN_MARKET_LIQUIDITY", "500")),
+    "demo_min_selection_value": float(os.getenv("MATRIX_DEMO_MIN_SELECTION_VALUE", "50")),
+    "demo_min_live_minute": int(os.getenv("MATRIX_DEMO_MIN_LIVE_MINUTE", "2")),
+    "demo_max_live_minute": int(os.getenv("MATRIX_DEMO_MAX_LIVE_MINUTE", "75")),
+    "demo_max_per_event": int(os.getenv("MATRIX_DEMO_MAX_PER_EVENT", "2")),
+    "demo_max_open": int(os.getenv("MATRIX_DEMO_MAX_OPEN", "20")),
+    "demo_data_max_age_seconds": int(os.getenv("MATRIX_DEMO_DATA_MAX_AGE_SECONDS", "900")),
 }
 
 STATE = {
@@ -365,6 +379,10 @@ def parse_betfair_visible_csv(text):
         total = _row_get(raw, "Total correspondido", "TotalMatched", "Total Matched")
         back_book = _row_get(raw, "Back book %", "Back Book %")
         lay_book = _row_get(raw, "Lay book %", "Lay Book %")
+        winners = _row_get(raw, "Vencedor(es)", "Vencedores", "Winner(s)", "Winners")
+        my_selections = _row_get(raw, "Minhas seleções", "Minhas selecoes", "My selections")
+        lp = _row_get(raw, "L/P", "P/L", "Profit/Loss")
+        bets_text = _row_get(raw, "Apostas", "Bets")
 
         if not event_name:
             continue
@@ -401,6 +419,10 @@ def parse_betfair_visible_csv(text):
             "total_matched_num": _parse_br_number(total),
             "back_book": back_book or None,
             "lay_book": lay_book or None,
+            "winners": winners or None,
+            "my_selections": my_selections or None,
+            "lp": lp or None,
+            "bets_text": bets_text or None,
             "market_id": (mirror or {}).get("market_id"),
             "event_id": (mirror or {}).get("event_id"),
             "linkado_marketid": bool((mirror or {}).get("market_id")),
@@ -868,6 +890,213 @@ def betfair_live_payload():
             "linkado_matrix": bool(m.get("linkado_matrix")),
         })
     return items
+
+
+
+def _demo_market_kind(market):
+    name = _norm_text(market.get("market_name"))
+    if _market_is_match_odds(market):
+        return "MATCH_ODDS"
+    if (
+        "mais menos de 2 5" in name
+        or "over under 2 5" in name
+        or "over under 2.5" in name
+    ):
+        return "OVER_UNDER_25"
+    if (
+        ("ambas" in name and "marcam" in name)
+        or ("both teams" in name and "score" in name)
+    ):
+        return "BOTH_TEAMS_SCORE"
+    return None
+
+
+def _demo_elapsed_minutes(market):
+    dt = _flex_start_dt(market.get("start_time"))
+    if not dt:
+        return None
+    return max(0, int((agora() - dt).total_seconds() // 60))
+
+
+def _demo_visible_fresh_enough():
+    age = betfair_visible_age_seconds()
+    return age is not None and age <= CONFIG["demo_data_max_age_seconds"]
+
+
+def demo_live_candidates():
+    """
+    Entradas AUTOMÁTICAS DE DEMONSTRAÇÃO.
+    Nunca envia uma ordem real à Betfair.
+
+    O campo favorite_amount vem do texto do BF Bot Manager, por exemplo:
+      Sabah FA, R$515,77@2,32
+    Esse R$515,77 é tratado como VALOR DISPONÍVEL NA SELEÇÃO/preço exibido,
+    e não como percentual de apostadores ou total já apostado no time.
+    """
+    if not CONFIG["demo_auto_enabled"]:
+        return []
+
+    with LOCK:
+        rows = list(BETFAIR_VISIBLE.get("rows") or [])
+
+    if not rows or not _demo_visible_fresh_enough():
+        return []
+
+    eligible = []
+    for row in rows:
+        live_state = _market_live_state(row)
+        if not live_state:
+            continue
+
+        kind = _demo_market_kind(row)
+        if not kind:
+            continue
+
+        market_id = str(row.get("market_id") or "").strip()
+        selection = str(row.get("favorite_selection") or "").strip()
+        odd = row.get("favorite_odd")
+        selection_value = row.get("favorite_amount")
+        market_liquidity = row.get("total_matched_num")
+        elapsed = _demo_elapsed_minutes(row)
+
+        if not market_id or not selection or odd is None or elapsed is None:
+            continue
+
+        try:
+            odd = float(odd)
+            selection_value = float(selection_value or 0)
+            market_liquidity = float(market_liquidity or 0)
+        except Exception:
+            continue
+
+        if odd < CONFIG["demo_odd_min"] or odd > CONFIG["demo_odd_max"]:
+            continue
+        if market_liquidity < CONFIG["demo_min_market_liquidity"]:
+            continue
+        if selection_value < CONFIG["demo_min_selection_value"]:
+            continue
+        if elapsed < CONFIG["demo_min_live_minute"] or elapsed > CONFIG["demo_max_live_minute"]:
+            continue
+
+        # Em Match Odds, não usa o empate como "time com valor".
+        if kind == "MATCH_ODDS" and _norm_text(selection) in ("the draw", "draw", "empate"):
+            continue
+
+        implied = round(100.0 / odd, 1)
+
+        # Peso extra para seleção que possui maior valor visível no próprio nome/linha.
+        # É um índice de triagem, não probabilidade real.
+        selection_value_score = min(20.0, max(0.0, math.log10(max(selection_value, 1)) * 5.0))
+        liquidity_score = min(15.0, max(0.0, math.log10(max(market_liquidity, 1)) * 3.0))
+        demo_score = round(min(99.0, implied * 0.70 + selection_value_score + liquidity_score), 1)
+
+        stake = float(CONFIG["demo_stake"])
+        retorno = round(stake * odd, 2)
+        lucro = round(retorno - stake, 2)
+
+        eligible.append({
+            "demo_key": f"{market_id}|{_norm_text(selection)}",
+            "event_key": str(row.get("event_id") or _norm_text(row.get("event_name"))),
+            "event_id": row.get("event_id"),
+            "market_id": market_id,
+            "jogo": row.get("event_name"),
+            "mercado": row.get("market_name"),
+            "market_kind": kind,
+            "selecao": selection,
+            "odd": odd,
+            "stake": stake,
+            "retorno_potencial": retorno,
+            "lucro_potencial": lucro,
+            "minuto": elapsed,
+            "valor_na_selecao": selection_value,
+            "valor_na_selecao_texto": (
+                f"R$ {selection_value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            ),
+            "total_correspondido": row.get("total_matched"),
+            "liquidez": market_liquidity,
+            "prob_implicita": implied,
+            "indice_demo": demo_score,
+            "live_source": live_state,
+            "start_time": row.get("start_time"),
+            "fonte_odd": "BETFAIR",
+            "modo": "AUTO DEMO",
+            "motivo": (
+                f"Betfair/BF Bot: minuto ~{elapsed}; odd {odd:.2f}; "
+                f"valor visível na seleção {selection_value:.2f}; "
+                f"total correspondido {row.get('total_matched') or '-'}."
+            ),
+        })
+
+    priority = {"MATCH_ODDS": 0, "OVER_UNDER_25": 1, "BOTH_TEAMS_SCORE": 2}
+    by_event = {}
+    for c in eligible:
+        by_event.setdefault(c["event_key"], []).append(c)
+
+    selected = []
+    for group in by_event.values():
+        group.sort(key=lambda x: (
+            priority.get(x["market_kind"], 99),
+            -x["indice_demo"],
+            -x["valor_na_selecao"],
+            -x["liquidez"],
+        ))
+        selected.extend(group[:CONFIG["demo_max_per_event"]])
+
+    selected.sort(key=lambda x: (-x["indice_demo"], -x["valor_na_selecao"], -x["liquidez"]))
+    return selected[:CONFIG["demo_max_open"]]
+
+
+def demo_result_rows():
+    with LOCK:
+        rows = list(BETFAIR_VISIBLE.get("rows") or [])
+    out = []
+    for row in rows:
+        winners = str(row.get("winners") or "").strip()
+        market_id = str(row.get("market_id") or "").strip()
+        if not winners or not market_id:
+            continue
+        out.append({
+            "market_id": market_id,
+            "event_id": row.get("event_id"),
+            "jogo": row.get("event_name"),
+            "mercado": row.get("market_name"),
+            "winners": winners,
+            "status": row.get("status"),
+        })
+    return out
+
+
+def demo_auto_snapshot():
+    c = demo_live_candidates()
+    return {
+        "habilitado": CONFIG["demo_auto_enabled"],
+        "modo": "DEMONSTRACAO",
+        "banca_inicial": CONFIG["demo_bank"],
+        "valor_por_entrada": CONFIG["demo_stake"],
+        "odd_min": CONFIG["demo_odd_min"],
+        "odd_max": CONFIG["demo_odd_max"],
+        "liquidez_minima": CONFIG["demo_min_market_liquidity"],
+        "valor_minimo_na_selecao": CONFIG["demo_min_selection_value"],
+        "minuto_min": CONFIG["demo_min_live_minute"],
+        "minuto_max": CONFIG["demo_max_live_minute"],
+        "max_por_partida": CONFIG["demo_max_per_event"],
+        "max_abertas": CONFIG["demo_max_open"],
+        "dados_idade_segundos": betfair_visible_age_seconds(),
+        "dados_frescos_para_demo": _demo_visible_fresh_enough(),
+        "candidatos": c,
+        "total_candidatos": len(c),
+        "mercados": [
+            "Resultado da partida (Match Odds)",
+            "Mais/Menos de 2,5 gols",
+            "Ambas marcam (quando vier no CSV)",
+        ],
+        "analise_valor_selecao": True,
+        "observacao_valor": (
+            "O valor junto ao nome/seleção é liquidez disponível na cotação exibida, "
+            "não percentual de pessoas apostando."
+        ),
+        "observacao": "AUTO DEMO somente. Nenhuma ordem real é enviada pela MATRIX.",
+    }
 
 
 def betfair_mirror_snapshot():
@@ -1841,11 +2070,13 @@ def status():
 
     return JSONResponse({
         "nome": "MATRIX - FUTEBOL",
-        "versao": "V3.13 ODD BETFAIR REAL + AO VIVO + MARKETID",
+        "versao": "V3.14 AUTO DEMO + VALOR NA SELECAO + BETFAIR",
         "config": CONFIG,
         "conta": account_info(),
         "betfair_mirror": betfair_mirror_snapshot(),
         "betfair_ao_vivo": betfair_live_payload(),
+        "demo_auto": demo_auto_snapshot(),
+        "demo_resultados": demo_result_rows(),
         "bfbot": {
             "habilitado": CONFIG["bfbot_enabled"],
             "provider": CONFIG["bfbot_provider"],
