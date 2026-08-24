@@ -42,6 +42,66 @@ LOCK = threading.Lock()
 H2H_CACHE = {}
 H2H_TTL = 12 * 60 * 60
 
+
+def _mask(value, keep_start=2, keep_end=2):
+    value = str(value or "").strip()
+    if not value:
+        return "-"
+    if len(value) <= keep_start + keep_end:
+        return "*" * len(value)
+    return value[:keep_start] + ("*" * (len(value) - keep_start - keep_end)) + value[-keep_end:]
+
+
+def account_info():
+    """
+    Informações visíveis da conta.
+    Credenciais reais (senha/token/API key) NÃO são devolvidas ao navegador.
+    Quando houver uma API oficial da casa integrada, o saldo e as apostas abertas
+    podem ser atualizados em tempo real aqui.
+    """
+    connected = os.getenv("BET_ACCOUNT_CONNECTED", "false").strip().lower() in ("1", "true", "yes", "sim")
+    house = os.getenv("BET_HOUSE_NAME", "NÃO CONFIGURADA").strip()
+    user = os.getenv("BET_ACCOUNT_USER", "").strip()
+    account_id = os.getenv("BET_ACCOUNT_ID", "").strip()
+    mode = os.getenv("BET_ACCOUNT_MODE", "SIMULACAO").strip().upper()
+    currency = os.getenv("BET_ACCOUNT_CURRENCY", "BRL").strip().upper()
+
+    def env_float(name):
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    balance = env_float("BET_ACCOUNT_BALANCE")
+    available = env_float("BET_ACCOUNT_AVAILABLE")
+    open_bets = os.getenv("BET_ACCOUNT_OPEN_BETS", "").strip()
+    try:
+        open_bets = int(open_bets) if open_bets else 0
+    except Exception:
+        open_bets = 0
+
+    return {
+        "conectada": connected,
+        "status": "CONECTADA" if connected else "AGUARDANDO API",
+        "casa": house,
+        "usuario": _mask(user, 2, 2) if user else "-",
+        "id_conta": _mask(account_id, 2, 2) if account_id else "-",
+        "modo": mode,
+        "moeda": currency,
+        "saldo": balance,
+        "saldo_disponivel": available,
+        "apostas_abertas": open_bets,
+        "observacao": (
+            "Dados em tempo real pela API oficial da casa."
+            if connected
+            else "A conta ainda não está conectada à API oficial da casa de apostas."
+        ),
+    }
+
+
 app = FastAPI(title="MATRIX - FUTEBOL")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
@@ -681,8 +741,9 @@ def status():
     with LOCK:
         return JSONResponse({
             "nome": "MATRIX - FUTEBOL",
-            "versao": "V3.3 COMPLETA H2H + AO VIVO + SIMULADOR",
+            "versao": "V3.4 CONTA + H2H + AO VIVO + SIMULADOR",
             "config": CONFIG,
+            "conta": account_info(),
             **STATE,
         })
 
@@ -693,9 +754,15 @@ def analisar():
     return status()
 
 
+
+@app.get("/api/account")
+def api_account():
+    return JSONResponse(account_info())
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "versao": "3.3"}
+    return {"ok": True, "versao": "3.4"}
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -28,7 +28,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
   <div class="top">
     <div>
       <h1>MATRIX - FUTEBOL</h1>
-      <div class="sub">V3.3 • H2H • Libertadores • Internacionais • AO VIVO • Simulação</div>
+      <div class="sub">V3.4 • CONTA • H2H • Libertadores • Internacionais • AO VIVO • Simulação</div>
     </div>
     <button id="go" class="btn">ANALISAR AGORA</button>
   </div>
@@ -51,6 +51,7 @@ h1{margin:0 0 4px;font-size:27px}.sub{color:#87a097;margin-bottom:14px}.grid{dis
     <button class="tab" data-mode="intl">INTERNACIONAIS</button>
     <button class="tab" data-mode="todos">TODOS</button>
     <button class="tab" data-mode="bets">MINHAS APOSTAS</button>
+    <button class="tab" data-mode="account">CONTA</button>
   </div>
 
   <div class="card" style="margin-top:9px">
@@ -77,6 +78,7 @@ function badge(x){
 }
 
 function listForMode(){
+  if(mode==='account')return [];
   if(mode==='bets')return getBets();
   if(!state)return[];
   if(mode==='live')return state.ao_vivo||[];
@@ -86,7 +88,7 @@ function listForMode(){
   return state.sinais||[];
 }
 function titleForMode(){
-  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO'}[mode];
+  return {sinais:'Sinais encontrados',live:'Jogos AO VIVO',lib:'Copa Libertadores',intl:'Jogos internacionais',todos:'Todos os jogos analisados',bets:'Minhas apostas de SIMULAÇÃO',account:'Informações da conta'}[mode];
 }
 
 function h2hHtml(x){
@@ -158,8 +160,39 @@ function renderBet(b){
   </div>`;
 }
 
+
+function fmtMoney(v,currency='BRL'){
+  if(v===null||v===undefined||v==='')return '—';
+  try{return Number(v).toLocaleString('pt-BR',{style:'currency',currency:currency||'BRL'});}
+  catch(e){return String(v);}
+}
+
+function renderAccount(){
+  const a=(state&&state.conta)||{};
+  const connected=!!a.conectada;
+  $('list').innerHTML=`
+    <div class="item">
+      <div class="row"><strong>Conta da casa de apostas</strong>
+        <span class="badge ${connected?'':'wait'}">${esc(a.status||'AGUARDANDO API')}</span>
+      </div>
+      <div class="row"><span>Casa de apostas</span><b>${esc(a.casa||'-')}</b></div>
+      <div class="row"><span>Usuário</span><b>${esc(a.usuario||'-')}</b></div>
+      <div class="row"><span>ID da conta</span><b>${esc(a.id_conta||'-')}</b></div>
+      <div class="row"><span>Modo</span><b>${esc(a.modo||'SIMULACAO')}</b></div>
+      <div class="row"><span>Moeda</span><b>${esc(a.moeda||'BRL')}</b></div>
+      <div class="row"><span>Saldo</span><b class="money">${fmtMoney(a.saldo,a.moeda)}</b></div>
+      <div class="row"><span>Saldo disponível</span><b class="money">${fmtMoney(a.saldo_disponivel,a.moeda)}</b></div>
+      <div class="row"><span>Apostas abertas</span><b>${a.apostas_abertas??0}</b></div>
+      <div class="reason">${esc(a.observacao||'')}</div>
+      <div class="muted" style="margin-top:8px">
+        Senha, token e chave da API nunca aparecem nesta tela.
+      </div>
+    </div>`;
+}
+
 function render(){
   $('title').textContent=titleForMode();
+  if(mode==='account'){renderAccount();return;}
   const data=listForMode();
   $('list').innerHTML='';
   rendered=data;
