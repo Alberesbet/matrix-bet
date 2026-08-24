@@ -1,0 +1,96 @@
+
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1117">
+<title>MATRIX - FUTEBOL</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<style>
+body{margin:0;background:#0b1117;color:#eef5f1;font-family:Arial,sans-serif}
+.wrap{max-width:900px;margin:auto;padding:18px}
+h1{margin:0 0 4px;font-size:28px} .sub{color:#8ea59a;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.card{background:#121b22;border:1px solid #24333c;border-radius:16px;padding:16px}
+.big{font-size:28px;font-weight:700;color:#46e6a2}
+.label{font-size:12px;color:#8ea59a;text-transform:uppercase}
+.signal{margin-top:12px;padding:14px;border-radius:14px;background:#111921;border:1px solid #253842}
+.row{display:flex;justify-content:space-between;gap:10px;margin-top:8px}
+.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#173127;color:#5ef0b1;font-size:12px}
+.err{color:#ff8f8f}
+.ok{color:#5ef0b1;font-weight:700}.muted{color:#8ea59a;font-size:12px}
+@media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{padding:14px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MATRIX - FUTEBOL</h1>
+  <div class="sub">V2 • painel mobile • SportMonks</div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">Status</div>
+      <div id="status" class="big">...</div>
+    </div>
+    <div class="card">
+      <div class="label">Jogos encontrados</div>
+      <div id="jogos" class="big">0</div>
+    </div>
+    <div class="card">
+      <div class="label">Sinais</div>
+      <div id="qtd" class="big">0</div>
+    </div>
+    <div class="card">
+      <div class="label">Última atualização</div>
+      <div id="hora">...</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="row">
+      <strong>Sinais encontrados</strong>
+      <span class="badge">SIMULAÇÃO</span>
+    </div>
+    <div id="lista"></div>
+    <div id="erro" class="err"></div>
+  </div>
+</div>
+<script>
+async function atualizar(){
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});
+    const d=await r.json();
+    document.getElementById('status').textContent=d.status||'-';
+    document.getElementById('jogos').textContent=d.jogos_encontrados||0;
+    document.getElementById('qtd').textContent=(d.sinais||[]).length;
+    document.getElementById('hora').textContent=d.ultima_atualizacao||'-';
+    document.getElementById('erro').textContent=d.erro?('Erro: '+d.erro):'';
+    const lista=document.getElementById('lista');
+    lista.innerHTML='';
+    (d.sinais||[]).forEach(s=>{
+      const el=document.createElement('div');
+      el.className='signal';
+      el.innerHTML=`<strong>${s.jogo}</strong>
+        <div class="row"><span>Horário</span><b>${s.horario||'-'}</b></div>
+        <div class="row"><span>Mercado</span><b>${s.mercado||'1X2'}</b></div>
+        <div class="row"><span>Entrada sugerida</span><b>${s.selecao}</b></div>
+        <div class="row"><span>Odd</span><b>${s.odd}</b></div>
+        <div class="row"><span>Probabilidade estimada</span><b>${s.prob}%</b></div>
+        <div class="muted">${s.prob_tipo||''}</div>
+        <div class="row"><span>Status</span><b class="ok">${s.status_sinal||'APROVADO'}</b></div>
+        <div class="row"><span>Stake de simulação</span><b>R$ ${s.stake}</b></div>`;
+      lista.appendChild(el);
+    });
+    if((d.sinais||[]).length===0){
+      lista.innerHTML='<p style="color:#8ea59a">Nenhum sinal dentro dos filtros agora.</p>';
+    }
+  }catch(e){
+    document.getElementById('erro').textContent='Falha ao atualizar painel.';
+  }
+}
+atualizar(); setInterval(atualizar,15000);
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}
+</script>
+</body>
+</html>
